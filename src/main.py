@@ -29,7 +29,7 @@ def read_root():
     return {"message": "Welcome to Terças FC API!"}
 
 # Post /players/ -> Create new player
-@app.post("players/", response_model=schemas.Player)
+@app.post("/players/", response_model=schemas.Player)
 def create_player(player: schemas.PlayerCreate, db: Session = Depends(get_db)):
     # Does the player already exists?
     existing_player = db.query(models.Player).filter(models.Player.name == player.name).first()
@@ -52,3 +52,142 @@ def read_players(skip: int = 0, limit: int = 100, db: Session = Depends(get_db))
     players = db.query(models.Player).offset(skip).limit(limit).all()
     return players
 
+@app.post("/matches/", response_model=schemas.Match)
+def create_match(match: schemas.MatchCreate, db: Session = Depends(get_db)):
+    # Create the Match Record ("Header")
+    db_match = models.Match(date=match.date, result=match.result)
+
+    db.add(db_match)
+    db.commit()
+    db.refresh(db_match)
+
+    # Add players team A
+    for player_id in match.team_a_players:
+        #Check if player exists
+        match_player = models.MatchPlayer(
+            match_id=db_match.id,
+            player_id=player_id,
+            team="A"
+        )
+        db.add(match_player)
+
+        # 3. Add players from Team B
+    for player_id in match.team_b_players:
+        match_player = models.MatchPlayer(
+        match_id=db_match.id,
+        player_id=player_id,
+        team="B"
+        )
+        db.add(match_player)
+
+    # Commit all the player links
+    db.commit()
+
+    return db_match
+
+
+@app.get("/debug/")
+def debug_database(db: Session = Depends(get_db)):
+    matches = db.query(models.Match).all()
+    debug_list = []
+
+    for match in matches:
+        # Get all players linked to this match manually
+        links = db.query(models.MatchPlayer).filter(models.MatchPlayer.match_id == match.id).all()
+
+        player_names = []
+        for link in links:
+            # Find player name for this ID
+            p = db.query(models.Player).filter(models.Player.id == link.player_id).first()
+            if p:
+                player_names.append(f"{p.name} (Team {link.team})")
+
+        debug_list.append({
+            "match_id": match.id,
+            "date": match.date,
+            "result": match.result,
+            "players_recorded": player_names
+        })
+
+    return debug_list
+
+# Get /table/ -> calculates the championship table automatically
+# GET /table/ -> Calculates the Championship Table automatically
+@app.get("/table/")
+def get_league_table(db: Session = Depends(get_db)):
+    print("--- INICIANDO CÁLCULO DA TABELA ---") # Log no Terminal
+
+    players = db.query(models.Player).all()
+    matches = db.query(models.Match).all()
+
+    # Initialize table
+    table = {
+        p.id: {
+            "id": p.id,
+            "name": p.name,
+            "points": 0,
+            "games_played": 0,
+            "wins": 0,
+            "draws": 0,
+            "losses": 0
+        }
+        for p in players
+    }
+
+    for match in matches:
+        print(f"Processando Jogo {match.id} | Resultado: {match.result}")
+
+        # Get exact links for this match
+        match_details = db.query(models.MatchPlayer).filter(models.MatchPlayer.match_id == match.id).all()
+
+        for mp in match_details:
+            pid = mp.player_id
+            team = mp.team
+
+            if pid not in table:
+                print(f"  -> ERRO: Jogador ID {pid} não encontrado na tabela inicial.")
+                continue
+
+            # Calcular Pontos
+            points_to_add = 0
+            is_win = False
+            is_draw = False
+            is_loss = False
+
+            # Lógica explicita para evitar erros de aninhamento
+            if match.result == "DRAW":
+                is_draw = True
+                points_to_add = 2
+
+            elif match.result == "TEAM_A":
+                if team == "A":
+                    is_win = True
+                    points_to_add = 3
+                else: # Jogou na B e ganhou a A -> Derrota
+                    is_loss = True
+                    points_to_add = 1
+
+            elif match.result == "TEAM_B":
+                if team == "B":
+                    is_win = True
+                    points_to_add = 3
+                else: # Jogou na A e ganhou a B -> Derrota
+                    is_loss = True
+                    points_to_add = 1
+
+            # Atualizar Tabela
+            table[pid]["games_played"] += 1
+            table[pid]["points"] += points_to_add
+
+            if is_win: table[pid]["wins"] += 1
+            if is_draw: table[pid]["draws"] += 1
+            if is_loss: table[pid]["losses"] += 1
+
+            print(f"  -> Jogador ID {pid} ({team}): Ganhou {points_to_add} pts")
+
+    # Converter para lista e ordenar
+    standings = list(table.values())
+    standings.sort(key=lambda x: (x["points"], x["games_played"]), reverse=True)
+
+    print("--- CÁLCULO TERMINADO ---")
+    return standings

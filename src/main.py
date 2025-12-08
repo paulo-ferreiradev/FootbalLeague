@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import date
 import enum
+import json # Used for archiving
 
 # --- DATABASE SETUP ---
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./football.db")
@@ -45,12 +46,18 @@ class Match(Base):
     is_double_points = Column(Boolean, default=False)
     players = relationship("Player", secondary="match_players", back_populates="matches")
 
-# NOVA TABELA: CAMPEÕES
 class Champion(Base):
     __tablename__ = "champions"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True)
     titles = Column(Integer, default=1)
+
+class SeasonArchive(Base):
+    __tablename__ = "season_archive"
+    id = Column(Integer, primary_key=True, index=True)
+    season_name = Column(String)
+    data_json = Column(Text) # Stores the full table as a JSON string
+    date = Column(Date)
 
 Base.metadata.create_all(bind=engine)
 
@@ -83,64 +90,23 @@ class ChampionSchema(BaseModel):
 
 class CloseSeasonSchema(BaseModel):
     champion_name: str
+    season_name: str
+
+class ArchiveSchema(BaseModel):
+    id: int
+    season_name: str
+    date: date
+    data_json: str # Will return the raw JSON string
+    class Config: from_attributes = True
 
 # --- API ---
-app = FastAPI(title="Terças FC V2")
+app = FastAPI(title="Terças FC V3")
 
-# AQUI ESTAVA O TEU ERRO DE INDENTAÇÃO. AGORA ESTÁ CORRIGIDO:
 def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    db = SessionLocal(); try: yield db; finally: db.close()
 
-# -- JOGADORES --
-@app.post("/players/", response_model=PlayerSchema)
-def create_player(player: PlayerCreate, db: Session = Depends(get_db)):
-    if db.query(Player).filter(Player.name == player.name).first():
-        raise HTTPException(400, "Nome já existe")
-    new_player = Player(name=player.name, balance=0.0, is_active=True)
-    db.add(new_player); db.commit(); db.refresh(new_player)
-    return new_player
-
-@app.get("/players/", response_model=List[PlayerSchema])
-def read_players(db: Session = Depends(get_db)):
-    return db.query(Player).filter(Player.is_active == True).all()
-
-@app.get("/players/all", response_model=List[PlayerSchema])
-def read_all_players(db: Session = Depends(get_db)):
-    return db.query(Player).all()
-
-# -- TESOURARIA --
-@app.post("/players/pay")
-def register_payment(payment: PaymentSchema, db: Session = Depends(get_db)):
-    p = db.query(Player).filter(Player.id == payment.player_id).first()
-    if not p: raise HTTPException(404, "Jogador não encontrado")
-    p.balance += payment.amount
-    db.commit()
-    return {"message": "Pagamento registado"}
-
-# -- JOGOS --
-@app.post("/matches/")
-def create_match(match: MatchCreate, db: Session = Depends(get_db)):
-    db_match = Match(date=match.date, result=match.result, is_double_points=match.is_double_points)
-    db.add(db_match); db.commit(); db.refresh(db_match)
-
-    # Custo por jogo (3€)
-    COST = 3.0
-    all_ids = match.team_a_players + match.team_b_players
-    for pid in all_ids:
-        team = "A" if pid in match.team_a_players else "B"
-        db.add(MatchPlayer(match_id=db_match.id, player_id=pid, team=team))
-        # Atualiza saldo
-        p = db.query(Player).filter(Player.id == pid).first()
-        if p: p.balance -= COST
-    db.commit()
-    return {"message": "Jogo registado"}
-
-@app.get("/table/")
-def get_table(db: Session = Depends(get_db)):
+# -- CORE LOGIC (Helper) --
+def calculate_table_stats(db: Session):
     players = db.query(Player).filter(Player.is_active == True).all()
     matches = db.query(Match).all()
     stats = {p.id: {"id": p.id, "name": p.name, "games_played": 0, "wins": 0, "draws": 0, "losses": 0, "points": 0} for p in players}
@@ -163,25 +129,93 @@ def get_table(db: Session = Depends(get_db)):
     res.sort(key=lambda x: (x["points"], x["games_played"]), reverse=True)
     return res
 
-# -- CAMPEÕES & RESET --
+# -- ENDPOINTS --
+
+@app.get("/table/")
+def get_table(db: Session = Depends(get_db)):
+    return calculate_table_stats(db)
+
+@app.post("/players/", response_model=PlayerSchema)
+def create_player(player: PlayerCreate, db: Session = Depends(get_db)):
+    if db.query(Player).filter(Player.name == player.name).first(): raise HTTPException(400, "Exists")
+    new_player = Player(name=player.name, balance=0.0, is_active=True)
+    db.add(new_player); db.commit(); db.refresh(new_player)
+    return new_player
+
+@app.get("/players/", response_model=List[PlayerSchema])
+def read_players(db: Session = Depends(get_db)):
+    return db.query(Player).filter(Player.is_active == True).all()
+
+@app.get("/players/all", response_model=List[PlayerSchema])
+def read_all_players(db: Session = Depends(get_db)):
+    return db.query(Player).all()
+
+@app.post("/players/pay")
+def register_payment(payment: PaymentSchema, db: Session = Depends(get_db)):
+    p = db.query(Player).filter(Player.id == payment.player_id).first()
+    if not p: raise HTTPException(404, "Not found")
+    p.balance += payment.amount; db.commit()
+    return {"message": "Paid"}
+
+@app.post("/matches/")
+def create_match(match: MatchCreate, db: Session = Depends(get_db)):
+    db_match = Match(date=match.date, result=match.result, is_double_points=match.is_double_points)
+    db.add(db_match); db.commit(); db.refresh(db_match)
+    for pid in match.team_a_players + match.team_b_players:
+        team = "A" if pid in match.team_a_players else "B"
+        db.add(MatchPlayer(match_id=db_match.id, player_id=pid, team=team))
+        p = db.query(Player).filter(Player.id == pid).first()
+        if p: p.balance -= 3.0
+    db.commit()
+    return {"message": "Match created"}
+
+# -- CHAMPIONS & HISTORY --
+
 @app.get("/champions/", response_model=List[ChampionSchema])
 def get_champions(db: Session = Depends(get_db)):
     return db.query(Champion).order_by(Champion.titles.desc()).all()
 
+@app.post("/champions/remove")
+def remove_champion(data: PlayerCreate, db: Session = Depends(get_db)):
+    champ = db.query(Champion).filter(Champion.name == data.name).first()
+    if not champ: raise HTTPException(404, "Champion not found")
+
+    if champ.titles > 1:
+        champ.titles -= 1
+    else:
+        db.delete(champ)
+
+    db.commit()
+    return {"message": f"Removed 1 title from {data.name}"}
+
 @app.post("/season/close")
 def close_season(data: CloseSeasonSchema, db: Session = Depends(get_db)):
-    # 1. Adicionar/Atualizar Campeão
+    # 1. Update Champion
     champ = db.query(Champion).filter(Champion.name == data.champion_name).first()
-    if champ:
-        champ.titles += 1
-    else:
-        db.add(Champion(name=data.champion_name, titles=1))
+    if champ: champ.titles += 1
+    else: db.add(Champion(name=data.champion_name, titles=1))
 
-    # 2. Reset Jogos
+    # 2. ARCHIVE DATA (The Snapshot)
+    final_stats = calculate_table_stats(db)
+    # Convert to simple list of dicts for JSON
+    archive_json = json.dumps(final_stats)
+
+    archive = SeasonArchive(
+        season_name=f"{data.season_name} ({date.today()})",
+        date=date.today(),
+        data_json=archive_json
+    )
+    db.add(archive)
+
+    # 3. Reset Games
     db.query(MatchPlayer).delete()
     db.query(Match).delete()
     db.commit()
-    return {"message": "Época fechada!"}
+    return {"message": "Season closed and archived!"}
+
+@app.get("/history/", response_model=List[ArchiveSchema])
+def get_history(db: Session = Depends(get_db)):
+    return db.query(SeasonArchive).order_by(SeasonArchive.date.desc()).all()
 
 @app.delete("/reset/")
 def reset_season_manual(db: Session = Depends(get_db)):

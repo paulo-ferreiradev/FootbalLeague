@@ -360,4 +360,4 @@ def main(page: ft.Page):
 
     refresh_leaderboard(); refresh_champions(); build_layout()
 
-app = ft.app(target=main, export_asgi_app=True)
+app = ft.app(target=main, export_asgi_app=True, assests_dir="assests")

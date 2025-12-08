@@ -4,5 +4,6 @@ fastapi
 uvicorn
 sqlalchemy
 pydantic
-flet
 requests
+flet
+psycopg2-binary

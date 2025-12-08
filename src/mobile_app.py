@@ -7,7 +7,7 @@ import time
 # --- CONFIGURAÇÃO ---
 # IMPORTANTE: Quando partilhares com amigos, este IP tem de ser o do servidor na Cloud
 # Para já, no teu PC, mantém assim:
-API_URL = "http://127.0.0.1:8000"
+API_URL = "https://tercas-fc-api.onrender.com"
 ADMIN_PASSWORD = "1234"  # <--- A TUA PASSWORD AQUI
 
 def main(page: ft.Page):

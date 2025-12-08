@@ -90,6 +90,54 @@ def main(page: ft.Page):
             except: pass
     threading.Thread(target=loop_update, daemon=True).start()
 
+    # --- 2. HISTÓRICO E REGRAS (RESTAURADO!) ---
+
+    # Esta é a parte dinâmica (Novos campeões vindos da Base de Dados)
+    novos_campeoes_container = ft.Column()
+
+    def carregar_novos_campeoes():
+        campeoes = get_api("champions/")
+        novos_campeoes_container.controls.clear()
+        if campeoes:
+            novos_campeoes_container.controls.append(ft.Text("NOVOS CAMPEÕES (App):", weight="bold", size=12, color="green"))
+            for c in campeoes:
+                trofeus = "🏆" * c['titles']
+                novos_campeoes_container.controls.append(
+                    ft.Row([ft.Text(f"{c['name'].upper()} =", weight="bold"), ft.Text(trofeus)], spacing=5)
+                )
+        page.update()
+
+    # Esta é a parte ESTÁTICA (O texto exato da imagem que pediste)
+    historico_estatico = ft.Column([
+        ft.Divider(),
+        ft.Text("TÍTULOS DE CAMPEÃO (Pavilhão Sécil & Pavilhão Escola Luisa Todi):", weight="bold", size=12),
+        ft.Row([ft.Text("RAFAEL =", weight="bold"), ft.Text("🏆")], spacing=5),
+        ft.Row([ft.Text("RENATO =", weight="bold"), ft.Text("🏆")], spacing=5),
+        ft.Row([ft.Text("RUI =", weight="bold"), ft.Text("🏆")], spacing=5),
+        ft.Row([ft.Text("ABDUL =", weight="bold"), ft.Text("🏆")], spacing=5),
+        ft.Row([ft.Text("NUNO TAVARES =", weight="bold"), ft.Text("🏆🏆")], spacing=5),
+        ft.Row([ft.Text("CASCA =", weight="bold"), ft.Text("🏆🏆")], spacing=5),
+        ft.Row([ft.Text("JOÃO SILVA =", weight="bold"), ft.Text("🏆🏆")], spacing=5),
+        ft.Row([ft.Text("JOÃO GALOPIM =", weight="bold"), ft.Text("🏆")], spacing=5),
+
+        # Aqui entram os novos que fores adicionando pela App
+        novos_campeoes_container
+    ], spacing=2)
+
+    regras_texto = ft.Column([
+        ft.Divider(),
+        ft.Text("VITÓRIA = 3 PONTOS"),
+        ft.Text("EMPATE = 2 PONTOS"),
+        ft.Text("DERROTA = 1 PONTO"),
+        ft.Container(height=10),
+        ft.Text("* PENALIZAÇÃO DE -3 PONTOS POR FALTA DE COMPARÊNCIA", size=12),
+        ft.Text("1º CRITÉRIO DE DESEMPATE: MAIOR NUMERO DE JOGOS REALIZADOS", size=12, weight="bold"),
+        ft.Text("SEMANALMENTE AS EQUIPAS SÃO ESCOLHIDAS PELO 1º E 2º CLASSIFICADOS", size=12),
+        ft.Text("SÓ ENTRA NA TABELA QUEM TIVER PELO MENOS 50% DO TOTAL JOGOS REALIZADOS", size=12),
+
+        historico_estatico
+    ], spacing=5)
+
     # --- 3. TESOURARIA (NOVO) ---
     lista_dividas = ft.Column()
     input_pagamento = ft.TextField(label="Valor (€)", width=100, keyboard_type=ft.KeyboardType.NUMBER)

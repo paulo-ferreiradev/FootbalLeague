@@ -1,9 +1,8 @@
 ## List of libraries
 
-fastapi
-uvicorn[standard]
-sqlalchemy
-pydantic
+flet==0.21.2
 requests
-flet
+fastapi
+uvicorn
+sqlalchemy
 psycopg2-binary

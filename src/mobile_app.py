@@ -488,7 +488,7 @@ def main(page: ft.Page):
         ft.Text("VITÓRIA = 3 PONTOS | EMPATE = 2 | DERROTA = 1"),
         ft.Text("* -3 PONTOS POR FALTA", size=12),
         ft.Text("Critério: Nº Jogos | Min 50% Jogos", size=12, weight="bold"),
-        ft.Text("Desempate: 1.Pontos 2.Jogos 3.Classificação epoca Anterior", size=10, italic=True),
+        ft.Text("Desempate: 1.Pontos 2.Jogos 3.Classificação epoca anterior", size=10, italic=True),
         view_static_history
     ], spacing=5)
 

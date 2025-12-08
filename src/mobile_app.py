@@ -4,6 +4,7 @@ import datetime
 import threading
 import time
 import json
+import os
 
 # =============================================================================
 # CONFIGURATION
@@ -11,9 +12,9 @@ import json
 API_URL = "https://tercas-fc-api.onrender.com"
 
 # Credentials
-ADMIN_PASSWORD = "1234"
-TREASURER_PASSWORD = "dinheiro"
-MANAGER_PASSWORD = "bola"
+ADMIN_PASSWORD = os.getenv("ADMIN_PASS", "1234")
+TREASURER_PASSWORD = os.getenv("TREASURER_PASS", "dinheiro")
+MANAGER_PASSWORD = os.getenv("MANAGER_PASS", "bola")
 
 # =============================================================================
 # MAIN APP

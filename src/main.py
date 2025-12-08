@@ -13,10 +13,9 @@ from pydantic import BaseModel
 # =============================================================================
 # 1. DATABASE SETUP
 # =============================================================================
-# Tenta ler do Render/Neon, senão usa ficheiro local
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./football.db")
 
-# Correção necessária para o Render/Neon (postgres -> postgresql)
+# Render/Neon compatibility fix
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
@@ -68,7 +67,7 @@ class SeasonArchive(Base):
     data_json = Column(Text)
     date = Column(Date)
 
-# Cria as tabelas na Base de Dados
+# Create tables if they don't exist (Safe to run on existing DB)
 Base.metadata.create_all(bind=engine)
 
 # =============================================================================
@@ -87,20 +86,22 @@ class PlayerSchema(BaseModel):
     name: str
     balance: float
     is_active: bool
-    class Config: from_attributes = True
+    class Config:
+        from_attributes = True
 
 class MatchCreate(BaseModel):
     date: date
     result: MatchResult
     team_a_players: List[int]
     team_b_players: List[int]
-    goalkeepers: List[int] = [] # IDs dos GRs que não pagam
+    goalkeepers: List[int] = []
     is_double_points: bool = False
 
 class ChampionSchema(BaseModel):
     name: str
     titles: int
-    class Config: from_attributes = True
+    class Config:
+        from_attributes = True
 
 class CloseSeasonSchema(BaseModel):
     champion_name: str
@@ -111,15 +112,15 @@ class ArchiveSchema(BaseModel):
     season_name: str
     date: date
     data_json: str
-    class Config: from_attributes = True
+    class Config:
+        from_attributes = True
 
 # =============================================================================
 # 4. API LOGIC
 # =============================================================================
 
-app = FastAPI(title="Terças FC API V3.3")
+app = FastAPI(title="Terças FC API V3.4")
 
-# AQUI ESTAVA O ERRO DE INDENTAÇÃO. AGORA ESTÁ CORRIGIDO:
 def get_db():
     db = SessionLocal()
     try:
@@ -127,27 +128,60 @@ def get_db():
     finally:
         db.close()
 
-# --- Lógica de Cálculo da Tabela ---
 def calculate_table_stats(db: Session):
     players = db.query(Player).filter(Player.is_active == True).all()
-    matches = db.query(Match).all()
-    stats = {p.id: {"id": p.id, "name": p.name, "games_played": 0, "wins": 0, "draws": 0, "losses": 0, "points": 0} for p in players}
+    # Sort matches by date to ensure correct form calculation
+    matches = db.query(Match).order_by(Match.date).all()
+
+    # Initialize stats with an empty 'form' list
+    stats = {
+        p.id: {
+            "id": p.id,
+            "name": p.name,
+            "games_played": 0,
+            "wins": 0,
+            "draws": 0,
+            "losses": 0,
+            "points": 0,
+            "form": [] # List to store 'W', 'L', 'D'
+        }
+        for p in players
+    }
 
     for m in matches:
         multiplier = 2 if m.is_double_points else 1
         links = db.query(MatchPlayer).filter(MatchPlayer.match_id == m.id).all()
+
         for link in links:
             pid = link.player_id
             if pid not in stats: continue
+
             stats[pid]["games_played"] += 1
+
+            result_char = ""
+
             if m.result == "DRAW":
-                stats[pid]["draws"] += 1; stats[pid]["points"] += (2 * multiplier)
+                stats[pid]["draws"] += 1
+                stats[pid]["points"] += (2 * multiplier)
+                result_char = "D"
             elif (m.result == "TEAM_A" and link.team == "A") or (m.result == "TEAM_B" and link.team == "B"):
-                stats[pid]["wins"] += 1; stats[pid]["points"] += (3 * multiplier)
+                stats[pid]["wins"] += 1
+                stats[pid]["points"] += (3 * multiplier)
+                result_char = "W"
             else:
-                stats[pid]["losses"] += 1; stats[pid]["points"] += (1 * multiplier)
+                stats[pid]["losses"] += 1
+                stats[pid]["points"] += (1 * multiplier)
+                result_char = "L"
+
+            # Append result to form
+            stats[pid]["form"].append(result_char)
 
     res = list(stats.values())
+
+    # Keep only the last 5 results for form
+    for p in res:
+        p["form"] = p["form"][-5:]
+
     res.sort(key=lambda x: (x["points"], x["games_played"]), reverse=True)
     return res
 
@@ -159,9 +193,12 @@ def get_table(db: Session = Depends(get_db)):
 
 @app.post("/players/", response_model=PlayerSchema)
 def create_player(player: PlayerCreate, db: Session = Depends(get_db)):
-    if db.query(Player).filter(Player.name == player.name).first(): raise HTTPException(400, "Exists")
+    if db.query(Player).filter(Player.name == player.name).first():
+        raise HTTPException(400, "Exists")
     new_player = Player(name=player.name, balance=0.0, is_active=True)
-    db.add(new_player); db.commit(); db.refresh(new_player)
+    db.add(new_player)
+    db.commit()
+    db.refresh(new_player)
     return new_player
 
 @app.get("/players/", response_model=List[PlayerSchema])
@@ -176,24 +213,27 @@ def read_all_players(db: Session = Depends(get_db)):
 def register_payment(payment: PaymentSchema, db: Session = Depends(get_db)):
     p = db.query(Player).filter(Player.id == payment.player_id).first()
     if not p: raise HTTPException(404, "Not found")
-    p.balance += payment.amount; db.commit()
+    p.balance += payment.amount
+    db.commit()
     return {"message": "Paid"}
 
 @app.post("/matches/")
 def create_match(match: MatchCreate, db: Session = Depends(get_db)):
+    # 1. Create Match Record
     db_match = Match(date=match.date, result=match.result, is_double_points=match.is_double_points)
-    db.add(db_match); db.commit(); db.refresh(db_match)
+    db.add(db_match)
+    db.commit()
+    db.refresh(db_match)
 
     GAME_COST = 3.0
     all_pids = match.team_a_players + match.team_b_players
 
+    # 2. Add Players
     for pid in all_pids:
         team = "A" if pid in match.team_a_players else "B"
         db.add(MatchPlayer(match_id=db_match.id, player_id=pid, team=team))
 
-        # REGRA DOS GUARDA-REDES:
-        # Se o ID do jogador NÃO estiver na lista de GRs, cobra 3€.
-        # Se estiver, não faz nada (não paga).
+        # 3. Handle Balance (Only charge if NOT in goalkeepers list)
         if pid not in match.goalkeepers:
             p = db.query(Player).filter(Player.id == pid).first()
             if p: p.balance -= GAME_COST
@@ -201,7 +241,7 @@ def create_match(match: MatchCreate, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "Match created"}
 
-# -- CAMPEÕES & HISTÓRICO --
+# -- CHAMPIONS & HISTORY --
 
 @app.get("/champions/", response_model=List[ChampionSchema])
 def get_champions(db: Session = Depends(get_db)):
@@ -211,25 +251,36 @@ def get_champions(db: Session = Depends(get_db)):
 def remove_champion(data: PlayerCreate, db: Session = Depends(get_db)):
     champ = db.query(Champion).filter(Champion.name == data.name).first()
     if not champ: raise HTTPException(404, "Not found")
-    if champ.titles > 1: champ.titles -= 1
-    else: db.delete(champ)
+
+    if champ.titles > 1:
+        champ.titles -= 1
+    else:
+        db.delete(champ)
+
     db.commit()
     return {"message": "Title removed"}
 
 @app.post("/season/close")
 def close_season(data: CloseSeasonSchema, db: Session = Depends(get_db)):
-    # 1. Atualizar Campeão
+    # 1. Champion Logic
     champ = db.query(Champion).filter(Champion.name == data.champion_name).first()
-    if champ: champ.titles += 1
-    else: db.add(Champion(name=data.champion_name, titles=1))
+    if champ:
+        champ.titles += 1
+    else:
+        db.add(Champion(name=data.champion_name, titles=1))
 
-    # 2. Guardar Histórico (Snapshot JSON)
+    # 2. History Logic
     final_stats = calculate_table_stats(db)
-    archive = SeasonArchive(season_name=f"{data.season_name} ({date.today()})", date=date.today(), data_json=json.dumps(final_stats))
+    archive = SeasonArchive(
+        season_name=f"{data.season_name} ({date.today()})",
+        date=date.today(),
+        data_json=json.dumps(final_stats)
+    )
     db.add(archive)
 
-    # 3. Limpar Jogos
-    db.query(MatchPlayer).delete(); db.query(Match).delete()
+    # 3. Reset Games
+    db.query(MatchPlayer).delete()
+    db.query(Match).delete()
     db.commit()
     return {"message": "Season closed!"}
 
@@ -247,5 +298,7 @@ def delete_history_entry(archive_id: int, db: Session = Depends(get_db)):
 
 @app.delete("/reset/")
 def reset_manual(db: Session = Depends(get_db)):
-    db.query(MatchPlayer).delete(); db.query(Match).delete(); db.commit()
+    db.query(MatchPlayer).delete()
+    db.query(Match).delete()
+    db.commit()
     return {"message": "Reset done"}

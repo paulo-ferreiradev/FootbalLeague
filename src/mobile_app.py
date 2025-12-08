@@ -12,7 +12,7 @@ API_URL = "https://tercas-fc-api.onrender.com"
 
 # Credentials
 ADMIN_PASSWORD = "1234"
-TREASURER_PASSWORD = "money"
+TREASURER_PASSWORD = "dinheiro"
 MANAGER_PASSWORD = "bola"
 
 # =============================================================================
@@ -26,7 +26,7 @@ def main(page: ft.Page):
 
     state = {"role": None}
 
-    # Variável para controlar a janela de login
+    # Control admin window
     dlg_login = None
 
     team_a_checkboxes = []
@@ -45,7 +45,7 @@ def main(page: ft.Page):
     column_team_a = ft.Column()
     column_team_b = ft.Column()
 
-    dropdown_champion = ft.Dropdown(label="Quem ganhou a época?")
+    dropdown_champion = ft.Dropdown(label="Quem foi o campeão?")
     dropdown_remove_champion = ft.Dropdown(label="Remover Título de quem?", expand=True)
 
     # GR DROPDOWNS
@@ -56,7 +56,7 @@ def main(page: ft.Page):
         label="Resultado",
         options=[ft.dropdown.Option("TEAM_A", "Vitória A"), ft.dropdown.Option("TEAM_B", "Vitória B"), ft.dropdown.Option("DRAW", "Empate")]
     )
-    checkbox_double_points = ft.Checkbox(label="Pontos x2?", fill_color="yellow")
+    checkbox_double_points = ft.Checkbox(label="Último jogo da época? Pontos a dobrar!", fill_color="yellow")
     input_new_player = ft.TextField(label="Novo Jogador")
 
     # History
@@ -64,8 +64,7 @@ def main(page: ft.Page):
     container_history_table = ft.Row(scroll=ft.ScrollMode.ALWAYS)
 
     # Login Input
-    # Definimos aqui para ser usado no dialog depois
-    input_password = ft.TextField(label="Senha", password=True)
+    input_password = ft.TextField(label="Password", password=True)
 
     # =========================================================================
     # HELPERS
@@ -111,7 +110,7 @@ def main(page: ft.Page):
         champions = fetch_api("champions/")
         column_new_champions.controls.clear(); dropdown_remove_champion.options.clear()
         if champions:
-            column_new_champions.controls.append(ft.Text("NOVOS CAMPEÕES (App):", weight="bold", size=12, color="green"))
+            column_new_champions.controls.append(ft.Text("NOVOS CAMPEÕES:", weight="bold", size=12, color="green"))
             for c in champions:
                 trophies = "🏆" * c['titles']
                 column_new_champions.controls.append(ft.Row([ft.Text(f"{c['name'].upper()} =", weight="bold"), ft.Text(trophies)], spacing=5))
@@ -201,11 +200,11 @@ def main(page: ft.Page):
 
     def close_season_handler(e):
         if not dropdown_champion.value: show_toast("Escolhe o Campeão!", "red"); return
-        if btn_close_season.text == "Fechar Época": btn_close_season.text = "Tens a Certeza?"; btn_close_season.bgcolor = "orange"; page.update(); return
+        if btn_close_season.text == "Terminar campeonato": btn_close_season.text = "Confirmas?"; btn_close_season.bgcolor = "orange"; page.update(); return
         try:
             requests.post(f"{API_URL}/season/close", json={"champion_name": dropdown_champion.value, "season_name": "Época"})
             show_toast("Fechado e Arquivado!", "green"); refresh_leaderboard(); refresh_champions()
-            btn_close_season.text = "Fechar Época"; btn_close_season.bgcolor = "red"
+            btn_close_season.text = "Terminar campeonato"; btn_close_season.bgcolor = "red"
         except: show_toast("Erro", "red")
 
     # --- History Logic ---
@@ -251,18 +250,18 @@ def main(page: ft.Page):
         )
         page.open(dlg)
 
-    # --- Login Logic (CORRIGIDO) ---
+    # --- Login Logic ---
     def login_handler(e):
         val = input_password.value
         auth_success = False
 
-        if val == ADMIN_PASSWORD: state["role"]="admin"; show_toast("Olá Mestre 👑"); auth_success=True
-        elif val == TREASURER_PASSWORD: state["role"]="treasurer"; show_toast("Olá Tesoureiro 💰"); auth_success=True
-        elif val == MANAGER_PASSWORD: state["role"]="manager"; show_toast("Olá Marcador ⚽"); auth_success=True
-        else: show_toast("Senha errada", "red")
+        if val == ADMIN_PASSWORD: state["role"]="admin"; show_toast("Logado como admin 👑"); auth_success=True
+        elif val == TREASURER_PASSWORD: state["role"]="treasurer"; show_toast("Logado como tesoureiro 💰"); auth_success=True
+        elif val == MANAGER_PASSWORD: state["role"]="manager"; show_toast("Logado como organizador ⚽"); auth_success=True
+        else: show_toast("Password errada", "red")
 
         if auth_success:
-            if dlg_login: page.close(dlg_login) # AQUI ESTÁ O FIX: Fecha o popup
+            if dlg_login: page.close(dlg_login) # Fecha o popup
             build_layout()
 
     def logout_handler(e):
@@ -272,20 +271,20 @@ def main(page: ft.Page):
     # BUTTONS & LAYOUT
     # =========================================================================
     btn_submit_payment = ft.ElevatedButton("Registar", on_click=submit_payment)
-    btn_submit_game = ft.ElevatedButton("Gravar Jogo (3€)", on_click=submit_game)
+    btn_submit_game = ft.ElevatedButton("Gravar jogo (3€)", on_click=submit_game)
     btn_create_player = ft.ElevatedButton("Criar", on_click=create_player)
-    btn_remove_champion = ft.ElevatedButton("Remover Título", on_click=remove_champion_handler, color="orange")
-    btn_close_season = ft.ElevatedButton("Fechar Época", bgcolor="red", color="white", on_click=close_season_handler)
+    btn_remove_champion = ft.ElevatedButton("Remover título", on_click=remove_champion_handler, color="orange")
+    btn_close_season = ft.ElevatedButton("Terminar campeonato", bgcolor="red", color="white", on_click=close_season_handler)
 
     btn_history_icon = ft.IconButton(ft.Icons.HISTORY, on_click=open_history_dialog, tooltip="Arquivo")
     btn_logout_icon = ft.IconButton(ft.Icons.LOGOUT, on_click=logout_handler, tooltip="Sair")
 
     def build_login_view():
         nonlocal dlg_login
-        # Atualizamos o evento on_submit para garantir que funciona no enter
+        # Event submit update (close window)
         input_password.on_submit = login_handler
         dlg_login = ft.AlertDialog(
-            title=ft.Text("Área Restrita"),
+            title=ft.Text("Área restrita"),
             content=ft.Column([input_password, ft.ElevatedButton("Entrar", on_click=login_handler)], height=150, alignment="center")
         )
         page.open(dlg_login)

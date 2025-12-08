@@ -12,7 +12,7 @@ PASS_ADMIN = "1234"
 PASS_TESOUREIRO = "money"
 
 def main(page: ft.Page):
-    page.title = "Gestão Terças FC"
+    page.title = "Terças FC"
     page.theme_mode = ft.ThemeMode.DARK
     page.scroll = ft.ScrollMode.AUTO
     page.padding = 10

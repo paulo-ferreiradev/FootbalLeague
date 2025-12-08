@@ -261,5 +261,4 @@ def main(page: ft.Page):
     atualizar_tabela()
     carregar_jogadores()
 
-if __name__ == "__main__":
-    ft.app(target=main)
+app = ft.app(target=main, export_asgi_app=True)

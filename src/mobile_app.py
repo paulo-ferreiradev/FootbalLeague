@@ -520,7 +520,7 @@ def main(page: ft.Page):
             ]
             if state["role"] == "admin":
                 admin_content.extend([
-                    ft.Text("Perigo / Correções", color="red"),
+                    ft.Text("Terminar campeonato (Irreversível) ⚠️", color="red"),
                     btn_close_season,
                     ft.Divider(),
                     dropdown_remove_champion,

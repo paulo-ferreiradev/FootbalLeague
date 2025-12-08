@@ -4,16 +4,17 @@ import datetime
 import threading
 import time
 import json
-import os
+import os # Importante para ler as senhas do sistema
 
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
 API_URL = "https://tercas-fc-api.onrender.com"
 
-# Credentials
+# SECURITY: Read passwords from Environment Variables
+# If not set (local testing), defaults to "1234", "money", "bola"
 ADMIN_PASSWORD = os.getenv("ADMIN_PASS", "1234")
-TREASURER_PASSWORD = os.getenv("TREASURER_PASS", "dinheiro")
+TREASURER_PASSWORD = os.getenv("TREASURER_PASS", "money")
 MANAGER_PASSWORD = os.getenv("MANAGER_PASS", "bola")
 
 # =============================================================================
@@ -26,10 +27,6 @@ def main(page: ft.Page):
     page.padding = 10
 
     state = {"role": None}
-
-    # Control admin window
-    dlg_login = None
-
     team_a_checkboxes = []
     team_b_checkboxes = []
 
@@ -46,10 +43,9 @@ def main(page: ft.Page):
     column_team_a = ft.Column()
     column_team_b = ft.Column()
 
-    dropdown_champion = ft.Dropdown(label="Quem foi o campeão?")
+    dropdown_champion = ft.Dropdown(label="Quem ganhou a época?")
     dropdown_remove_champion = ft.Dropdown(label="Remover Título de quem?", expand=True)
 
-    # GR DROPDOWNS
     dropdown_gr_a = ft.Dropdown(label="GR Equipa A (Não Paga)", expand=True)
     dropdown_gr_b = ft.Dropdown(label="GR Equipa B (Não Paga)", expand=True)
 
@@ -57,15 +53,15 @@ def main(page: ft.Page):
         label="Resultado",
         options=[ft.dropdown.Option("TEAM_A", "Vitória A"), ft.dropdown.Option("TEAM_B", "Vitória B"), ft.dropdown.Option("DRAW", "Empate")]
     )
-    checkbox_double_points = ft.Checkbox(label="Último jogo da época? Pontos a dobrar!", fill_color="yellow")
+    checkbox_double_points = ft.Checkbox(label="Pontos x2?", fill_color="yellow")
     input_new_player = ft.TextField(label="Novo Jogador")
 
     # History
     dropdown_history_season = ft.Dropdown(label="Escolher Época", expand=True)
     container_history_table = ft.Row(scroll=ft.ScrollMode.ALWAYS)
 
-    # Login Input
-    input_password = ft.TextField(label="Password", password=True)
+    # Login
+    input_password = ft.TextField(label="Senha", password=True, on_submit=lambda e: login_handler(e))
 
     # =========================================================================
     # HELPERS
@@ -79,29 +75,52 @@ def main(page: ft.Page):
             return r.json() if r.status_code == 200 else []
         except: return []
 
+    def format_form_icons(form_list):
+        """Converts ['W', 'L', 'D'] into icons."""
+        icons = ""
+        for res in form_list:
+            if res == "W": icons += "✅"
+            elif res == "L": icons += "❌"
+            elif res == "D": icons += "➖"
+        return icons
+
     # =========================================================================
     # LOGIC HANDLERS
     # =========================================================================
 
-    # -- Leaderboard --
+    # -- Leaderboard (NOW WITH FORM) --
     table_leaderboard = ft.DataTable(
         columns=[
-            ft.DataColumn(ft.Text("Pos")), ft.DataColumn(ft.Text("Nome")),
-            ft.DataColumn(ft.Text("P"), numeric=True), ft.DataColumn(ft.Text("J"), numeric=True),
-            ft.DataColumn(ft.Text("V"), numeric=True), ft.DataColumn(ft.Text("E"), numeric=True),
+            ft.DataColumn(ft.Text("Pos")),
+            ft.DataColumn(ft.Text("Nome")),
+            ft.DataColumn(ft.Text("P"), numeric=True),
+            ft.DataColumn(ft.Text("J"), numeric=True),
+            # New Column: Form
+            ft.DataColumn(ft.Text("Forma")),
+            ft.DataColumn(ft.Text("V"), numeric=True),
+            ft.DataColumn(ft.Text("E"), numeric=True),
             ft.DataColumn(ft.Text("D"), numeric=True),
-        ], rows=[], column_spacing=5
+        ], rows=[], column_spacing=10
     )
 
     def refresh_leaderboard():
         data = fetch_api("table/")
         table_leaderboard.rows.clear()
         for i, p in enumerate(data):
+            # Safe get for form (in case API is old cache)
+            form_data = p.get('form', [])
+            form_visuals = format_form_icons(form_data)
+
             table_leaderboard.rows.append(ft.DataRow(cells=[
-                ft.DataCell(ft.Text(str(i+1))), ft.DataCell(ft.Text(p['name'], weight="bold", size=13)),
+                ft.DataCell(ft.Text(str(i+1))),
+                ft.DataCell(ft.Text(p['name'], weight="bold", size=13)),
                 ft.DataCell(ft.Text(str(p['points']), color="yellow", weight="bold")),
-                ft.DataCell(ft.Text(str(p['games_played']))), ft.DataCell(ft.Text(str(p['wins']), color="green")),
-                ft.DataCell(ft.Text(str(p['draws']), color="blue")), ft.DataCell(ft.Text(str(p['losses']), color="red")),
+                ft.DataCell(ft.Text(str(p['games_played']))),
+                # Form Cell
+                ft.DataCell(ft.Text(form_visuals, size=10)),
+                ft.DataCell(ft.Text(str(p['wins']), color="green")),
+                ft.DataCell(ft.Text(str(p['draws']), color="blue")),
+                ft.DataCell(ft.Text(str(p['losses']), color="red")),
             ]))
         page.update()
 
@@ -111,7 +130,7 @@ def main(page: ft.Page):
         champions = fetch_api("champions/")
         column_new_champions.controls.clear(); dropdown_remove_champion.options.clear()
         if champions:
-            column_new_champions.controls.append(ft.Text("NOVOS CAMPEÕES:", weight="bold", size=12, color="green"))
+            column_new_champions.controls.append(ft.Text("NOVOS CAMPEÕES (App):", weight="bold", size=12, color="green"))
             for c in champions:
                 trophies = "🏆" * c['titles']
                 column_new_champions.controls.append(ft.Row([ft.Text(f"{c['name'].upper()} =", weight="bold"), ft.Text(trophies)], spacing=5))
@@ -154,8 +173,6 @@ def main(page: ft.Page):
             cbb = ft.Checkbox(label=p['name'], value=False); cbb.data = p['id']
             team_b_checkboxes.append(cbb); column_team_b.controls.append(cbb)
             dropdown_champion.options.append(ft.dropdown.Option(p['name']))
-
-            # GRs
             dropdown_gr_a.options.append(ft.dropdown.Option(key=str(p['id']), text=p['name']))
             dropdown_gr_b.options.append(ft.dropdown.Option(key=str(p['id']), text=p['name']))
 
@@ -180,7 +197,7 @@ def main(page: ft.Page):
                 "is_double_points": checkbox_double_points.value
             }
             requests.post(f"{API_URL}/matches/", json=payload)
-            show_toast("Gravado! GRs não pagaram.", "green")
+            show_toast("Gravado!", "green")
             refresh_treasury(); refresh_leaderboard()
             for c in team_a_checkboxes + team_b_checkboxes: c.value = False
             dropdown_gr_a.value = None; dropdown_gr_b.value = None
@@ -201,11 +218,11 @@ def main(page: ft.Page):
 
     def close_season_handler(e):
         if not dropdown_champion.value: show_toast("Escolhe o Campeão!", "red"); return
-        if btn_close_season.text == "Terminar campeonato": btn_close_season.text = "Confirmas?"; btn_close_season.bgcolor = "orange"; page.update(); return
+        if btn_close_season.text == "Fechar Época": btn_close_season.text = "Tens a Certeza?"; btn_close_season.bgcolor = "orange"; page.update(); return
         try:
             requests.post(f"{API_URL}/season/close", json={"champion_name": dropdown_champion.value, "season_name": "Época"})
             show_toast("Fechado e Arquivado!", "green"); refresh_leaderboard(); refresh_champions()
-            btn_close_season.text = "Terminar campeonato"; btn_close_season.bgcolor = "red"
+            btn_close_season.text = "Fechar Época"; btn_close_season.bgcolor = "red"
         except: show_toast("Erro", "red")
 
     # --- History Logic ---
@@ -216,9 +233,9 @@ def main(page: ft.Page):
         if season:
             try:
                 raw_data = json.loads(season['data_json'])
-                temp_table = ft.DataTable(columns=[ft.DataColumn(ft.Text("Pos")), ft.DataColumn(ft.Text("Nome")), ft.DataColumn(ft.Text("P"), numeric=True), ft.DataColumn(ft.Text("J"), numeric=True)], rows=[])
+                temp_table = ft.DataTable(columns=[ft.DataColumn(ft.Text("Pos")), ft.DataColumn(ft.Text("Nome")), ft.DataColumn(ft.Text("P"), numeric=True)], rows=[])
                 for i, p in enumerate(raw_data):
-                    temp_table.rows.append(ft.DataRow(cells=[ft.DataCell(ft.Text(str(i+1))), ft.DataCell(ft.Text(p['name'], weight="bold")), ft.DataCell(ft.Text(str(p['points']), color="yellow")), ft.DataCell(ft.Text(str(p['games_played'])))],))
+                    temp_table.rows.append(ft.DataRow(cells=[ft.DataCell(ft.Text(str(i+1))), ft.DataCell(ft.Text(p['name'], weight="bold")), ft.DataCell(ft.Text(str(p['points']), color="yellow"))]))
                 container_history_table.controls = [temp_table]
                 page.update()
             except: container_history_table.controls = [ft.Text("Erro dados")]
@@ -251,18 +268,18 @@ def main(page: ft.Page):
         )
         page.open(dlg)
 
-    # --- Login Logic ---
+    # --- Login ---
+    dlg_login = None
     def login_handler(e):
         val = input_password.value
-        auth_success = False
+        auth = False
+        if val == ADMIN_PASSWORD: state["role"]="admin"; show_toast("Olá Mestre 👑"); auth=True
+        elif val == TREASURER_PASSWORD: state["role"]="treasurer"; show_toast("Olá Tesoureiro 💰"); auth=True
+        elif val == MANAGER_PASSWORD: state["role"]="manager"; show_toast("Olá Marcador ⚽"); auth=True
+        else: show_toast("Senha errada", "red")
 
-        if val == ADMIN_PASSWORD: state["role"]="admin"; show_toast("Logado como admin 👑"); auth_success=True
-        elif val == TREASURER_PASSWORD: state["role"]="treasurer"; show_toast("Logado como tesoureiro 💰"); auth_success=True
-        elif val == MANAGER_PASSWORD: state["role"]="manager"; show_toast("Logado como organizador ⚽"); auth_success=True
-        else: show_toast("Password errada", "red")
-
-        if auth_success:
-            if dlg_login: page.close(dlg_login) # Fecha o popup
+        if auth:
+            if dlg_login: page.close(dlg_login)
             build_layout()
 
     def logout_handler(e):
@@ -272,22 +289,18 @@ def main(page: ft.Page):
     # BUTTONS & LAYOUT
     # =========================================================================
     btn_submit_payment = ft.ElevatedButton("Registar", on_click=submit_payment)
-    btn_submit_game = ft.ElevatedButton("Gravar jogo (3€)", on_click=submit_game)
+    btn_submit_game = ft.ElevatedButton("Gravar Jogo (3€)", on_click=submit_game)
     btn_create_player = ft.ElevatedButton("Criar", on_click=create_player)
-    btn_remove_champion = ft.ElevatedButton("Remover título", on_click=remove_champion_handler, color="orange")
-    btn_close_season = ft.ElevatedButton("Terminar campeonato", bgcolor="red", color="white", on_click=close_season_handler)
+    btn_remove_champion = ft.ElevatedButton("Remover Título", on_click=remove_champion_handler, color="orange")
+    btn_close_season = ft.ElevatedButton("Fechar Época", bgcolor="red", color="white", on_click=close_season_handler)
 
     btn_history_icon = ft.IconButton(ft.Icons.HISTORY, on_click=open_history_dialog, tooltip="Arquivo")
     btn_logout_icon = ft.IconButton(ft.Icons.LOGOUT, on_click=logout_handler, tooltip="Sair")
 
     def build_login_view():
         nonlocal dlg_login
-        # Event submit update (close window)
         input_password.on_submit = login_handler
-        dlg_login = ft.AlertDialog(
-            title=ft.Text("Área restrita"),
-            content=ft.Column([input_password, ft.ElevatedButton("Entrar", on_click=login_handler)], height=150, alignment="center")
-        )
+        dlg_login = ft.AlertDialog(title=ft.Text("Área Restrita"), content=ft.Column([input_password, ft.ElevatedButton("Entrar", on_click=login_handler)], height=150, alignment="center"))
         page.open(dlg_login)
 
     btn_login_icon = ft.IconButton(ft.Icons.PERSON, on_click=lambda e: build_login_view(), tooltip="Login")

@@ -1,16 +1,15 @@
+import os
 from fastapi import FastAPI, Depends, HTTPException
-from sqlalchemy import create_engine, Column, Integer, String, Date, ForeignKey, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, Date, ForeignKey, Boolean, Float, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship, Session
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import date
 import enum
-import os
 
-# --- 1. CONFIGURAÇÃO BASE DE DADOS ---
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./tercasfc.db")
-
+# --- DATABASE SETUP ---
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./football.db")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
@@ -18,7 +17,7 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- 2. TABELAS (MODELS) ---
+# --- MODELS ---
 class MatchResult(str, enum.Enum):
     TEAM_A = "TEAM_A"
     TEAM_B = "TEAM_B"
@@ -34,6 +33,8 @@ class Player(Base):
     __tablename__ = "players"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True)
+    is_active = Column(Boolean, default=True)
+    balance = Column(Float, default=0.0)
     matches = relationship("Match", secondary="match_players", back_populates="players")
 
 class Match(Base):
@@ -49,21 +50,25 @@ class Champion(Base):
     __tablename__ = "champions"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True)
-    titles = Column(Integer, default=1) # Quantos troféus tem
+    titles = Column(Integer, default=1)
 
 Base.metadata.create_all(bind=engine)
 
-# --- 3. SCHEMAS (JSON) ---
+# --- SCHEMAS ---
 class PlayerCreate(BaseModel):
     name: str
+
+class PaymentSchema(BaseModel):
+    player_id: int
+    amount: float
 
 class PlayerSchema(BaseModel):
     id: int
     name: str
-    class Config:
-        from_attributes = True
+    balance: float
+    is_active: bool
+    class Config: from_attributes = True
 
-# No src/main.py
 class MatchCreate(BaseModel):
     date: date
     result: MatchResult
@@ -71,24 +76,18 @@ class MatchCreate(BaseModel):
     team_b_players: List[int]
     is_double_points: bool = False
 
-class PlayerStandings(BaseModel):
-    id: int
-    name: str
-    games_played: int
-    wins: int
-    draws: int
-    losses: int
-    points: int
-
 class ChampionSchema(BaseModel):
     name: str
     titles: int
-    class Config:
-        from_attributes = True
+    class Config: from_attributes = True
 
-# --- 4. API ENDPOINTS ---
-app = FastAPI(title="Terças FC Campeonato")
+class CloseSeasonSchema(BaseModel):
+    champion_name: str
 
+# --- API ---
+app = FastAPI(title="Terças FC V2")
+
+# AQUI ESTAVA O TEU ERRO DE INDENTAÇÃO. AGORA ESTÁ CORRIGIDO:
 def get_db():
     db = SessionLocal()
     try:
@@ -96,57 +95,53 @@ def get_db():
     finally:
         db.close()
 
-# -- PLAYERS & MATCHES --
+# -- JOGADORES --
 @app.post("/players/", response_model=PlayerSchema)
 def create_player(player: PlayerCreate, db: Session = Depends(get_db)):
-    db_player = db.query(Player).filter(Player.name == player.name).first()
-    if db_player:
-        raise HTTPException(status_code=400, detail="Player exists")
-    new_player = Player(name=player.name)
-    db.add(new_player)
-    db.commit()
-    db.refresh(new_player)
+    if db.query(Player).filter(Player.name == player.name).first():
+        raise HTTPException(400, "Nome já existe")
+    new_player = Player(name=player.name, balance=0.0, is_active=True)
+    db.add(new_player); db.commit(); db.refresh(new_player)
     return new_player
 
 @app.get("/players/", response_model=List[PlayerSchema])
 def read_players(db: Session = Depends(get_db)):
+    return db.query(Player).filter(Player.is_active == True).all()
+
+@app.get("/players/all", response_model=List[PlayerSchema])
+def read_all_players(db: Session = Depends(get_db)):
     return db.query(Player).all()
 
-# --- SUBSTITUI A FUNÇÃO create_match POR ESTA ---
+# -- TESOURARIA --
+@app.post("/players/pay")
+def register_payment(payment: PaymentSchema, db: Session = Depends(get_db)):
+    p = db.query(Player).filter(Player.id == payment.player_id).first()
+    if not p: raise HTTPException(404, "Jogador não encontrado")
+    p.balance += payment.amount
+    db.commit()
+    return {"message": "Pagamento registado"}
+
+# -- JOGOS --
 @app.post("/matches/")
 def create_match(match: MatchCreate, db: Session = Depends(get_db)):
-    print(f"👉 A REGISTAR JOGO: {match.result} | Dobrar: {match.is_double_points}")
-    print(f"   Equipa A IDs: {match.team_a_players}")
-    print(f"   Equipa B IDs: {match.team_b_players}")
-
-    # 1. Criar o Jogo
     db_match = Match(date=match.date, result=match.result, is_double_points=match.is_double_points)
-    db.add(db_match)
+    db.add(db_match); db.commit(); db.refresh(db_match)
+
+    # Custo por jogo (3€)
+    COST = 3.0
+    all_ids = match.team_a_players + match.team_b_players
+    for pid in all_ids:
+        team = "A" if pid in match.team_a_players else "B"
+        db.add(MatchPlayer(match_id=db_match.id, player_id=pid, team=team))
+        # Atualiza saldo
+        p = db.query(Player).filter(Player.id == pid).first()
+        if p: p.balance -= COST
     db.commit()
-    db.refresh(db_match)
+    return {"message": "Jogo registado"}
 
-    # 2. Ligar Jogadores
-    for pid in match.team_a_players:
-        db.add(MatchPlayer(match_id=db_match.id, player_id=pid, team="A"))
-
-    for pid in match.team_b_players:
-        db.add(MatchPlayer(match_id=db_match.id, player_id=pid, team="B"))
-
-    db.commit()
-    print("✅ Jogo Gravado na Base de Dados!")
-    return {"message": "Match recorded"}
-
-@app.delete("/reset/")
-def reset_season(db: Session = Depends(get_db)):
-    db.query(MatchPlayer).delete()
-    db.query(Match).delete()
-    db.commit()
-    return {"message": "Season reset success"}
-
-# -- TABLE LOGIC --
-@app.get("/table/", response_model=List[PlayerStandings])
+@app.get("/table/")
 def get_table(db: Session = Depends(get_db)):
-    players = db.query(Player).all()
+    players = db.query(Player).filter(Player.is_active == True).all()
     matches = db.query(Match).all()
     stats = {p.id: {"id": p.id, "name": p.name, "games_played": 0, "wins": 0, "draws": 0, "losses": 0, "points": 0} for p in players}
 
@@ -157,36 +152,40 @@ def get_table(db: Session = Depends(get_db)):
             pid = link.player_id
             if pid not in stats: continue
             stats[pid]["games_played"] += 1
-            team = link.team
             if m.result == "DRAW":
                 stats[pid]["draws"] += 1; stats[pid]["points"] += (2 * multiplier)
-            elif m.result == "TEAM_A":
-                if team == "A": stats[pid]["wins"] += 1; stats[pid]["points"] += (3 * multiplier)
-                else: stats[pid]["losses"] += 1; stats[pid]["points"] += (1 * multiplier)
-            elif m.result == "TEAM_B":
-                if team == "B": stats[pid]["wins"] += 1; stats[pid]["points"] += (3 * multiplier)
-                else: stats[pid]["losses"] += 1; stats[pid]["points"] += (1 * multiplier)
+            elif (m.result == "TEAM_A" and link.team == "A") or (m.result == "TEAM_B" and link.team == "B"):
+                stats[pid]["wins"] += 1; stats[pid]["points"] += (3 * multiplier)
+            else:
+                stats[pid]["losses"] += 1; stats[pid]["points"] += (1 * multiplier)
 
     res = list(stats.values())
     res.sort(key=lambda x: (x["points"], x["games_played"]), reverse=True)
     return res
 
-# -- CHAMPIONS LOGIC (NOVO) --
+# -- CAMPEÕES & RESET --
 @app.get("/champions/", response_model=List[ChampionSchema])
 def get_champions(db: Session = Depends(get_db)):
-    # Ordenar por titulos (quem tem mais aparece primeiro)
     return db.query(Champion).order_by(Champion.titles.desc()).all()
 
-@app.post("/champions/add")
-def add_champion(payload: PlayerCreate, db: Session = Depends(get_db)):
-    # Verifica se já foi campeão antes
-    champ = db.query(Champion).filter(Champion.name == payload.name).first()
+@app.post("/season/close")
+def close_season(data: CloseSeasonSchema, db: Session = Depends(get_db)):
+    # 1. Adicionar/Atualizar Campeão
+    champ = db.query(Champion).filter(Champion.name == data.champion_name).first()
     if champ:
-        champ.titles += 1 # Adiciona +1 Troféu
+        champ.titles += 1
     else:
-        # Novo campeão
-        new_champ = Champion(name=payload.name, titles=1)
-        db.add(new_champ)
+        db.add(Champion(name=data.champion_name, titles=1))
 
+    # 2. Reset Jogos
+    db.query(MatchPlayer).delete()
+    db.query(Match).delete()
     db.commit()
-    return {"message": f"{payload.name} consagrado campeão!"}
+    return {"message": "Época fechada!"}
+
+@app.delete("/reset/")
+def reset_season_manual(db: Session = Depends(get_db)):
+    db.query(MatchPlayer).delete()
+    db.query(Match).delete()
+    db.commit()
+    return {"message": "Reset done"}

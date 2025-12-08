@@ -4,29 +4,27 @@ import datetime
 import threading
 import time
 
-# --- CONFIGURAÇÃO ---
-# IMPORTANTE: Quando partilhares com amigos, este IP tem de ser o do servidor na Cloud
-# Para já, no teu PC, mantém assim:
-API_URL = "https://tercas-fc-api.onrender.com"
-ADMIN_PASSWORD = "1234"  # <--- A TUA PASSWORD AQUI
+# --- CONFIG ---
+API_URL = "https://tercas-fc-api.onrender.com" # CONFIRMA O TEU LINK!
+
+# PASSWORDS
+PASS_ADMIN = "1234"
+PASS_TESOUREIRO = "money"
 
 def main(page: ft.Page):
-    page.title = "Terças FC"
+    page.title = "Gestão Terças FC"
     page.theme_mode = ft.ThemeMode.DARK
-    page.window_width = 400
-    page.window_height = 800
+    page.scroll = ft.ScrollMode.AUTO
     page.padding = 10
 
-    # Variáveis Globais
+    # Estado
+    state = {"role": None} # 'admin', 'treasurer', None
     team_a_selected = []
     team_b_selected = []
 
-    # Estado da Sessão (Login)
-    state = {"is_admin": False}
-
-    # --- FUNÇÕES AUXILIARES ---
-    def show_msg(texto, cor="green"):
-        page.snack_bar = ft.SnackBar(content=ft.Text(texto), bgcolor=cor)
+    # --- HELPERS ---
+    def show_msg(txt, color="green"):
+        page.snack_bar = ft.SnackBar(content=ft.Text(txt), bgcolor=color)
         page.snack_bar.open = True
         page.update()
 
@@ -36,7 +34,27 @@ def main(page: ft.Page):
             return r.json() if r.status_code == 200 else []
         except: return []
 
-    # --- 1. TABELA CLASSIFICATIVA ---
+    # --- 1. GALERIA DE CAMPEÕES (DINÂMICA) ---
+    galeria_container = ft.Column()
+
+    def carregar_galeria():
+        campeoes = get_api("champions/")
+        galeria_container.controls.clear()
+        galeria_container.controls.append(ft.Divider())
+        galeria_container.controls.append(ft.Text("GALERIA DE CAMPEÕES 🏆", weight="bold", color="yellow"))
+
+        if not campeoes:
+            galeria_container.controls.append(ft.Text("Sem registos...", italic=True, color="grey"))
+
+        for c in campeoes:
+            trofeus = "🏆" * c['titles']
+            galeria_container.controls.append(ft.Row([
+                ft.Text(f"{c['name']}:", weight="bold"),
+                ft.Text(trofeus)
+            ]))
+        page.update()
+
+    # --- 2. TABELA ---
     tabela = ft.DataTable(
         columns=[
             ft.DataColumn(ft.Text("Pos")),
@@ -46,7 +64,7 @@ def main(page: ft.Page):
             ft.DataColumn(ft.Text("V"), numeric=True),
             ft.DataColumn(ft.Text("E"), numeric=True),
             ft.DataColumn(ft.Text("D"), numeric=True),
-        ], rows=[], column_spacing=10
+        ], rows=[], column_spacing=5
     )
 
     def atualizar_tabela():
@@ -64,201 +82,157 @@ def main(page: ft.Page):
             ]))
         page.update()
 
-    # --- AUTO-UPDATE (Loop em background) ---
-    def auto_refresh_loop():
+    # Auto-Update Loop
+    def loop_update():
         while True:
-            time.sleep(10) # Atualiza a cada 10 segundos
-            try:
-                atualizar_tabela()
+            time.sleep(15)
+            try: atualizar_tabela()
             except: pass
+    threading.Thread(target=loop_update, daemon=True).start()
 
-    # Inicia o thread de atualização automática
-    threading.Thread(target=auto_refresh_loop, daemon=True).start()
+    # --- 3. TESOURARIA (NOVO) ---
+    lista_dividas = ft.Column()
+    input_pagamento = ft.TextField(label="Valor (€)", width=100, keyboard_type=ft.KeyboardType.NUMBER)
+    dd_pagador = ft.Dropdown(label="Quem pagou?", expand=True)
 
-    # --- 2. TEXTO EXATO DA IMAGEM ---
-    # Aqui está o texto exatamente como pediste, copiado da imagem
-    campeoes_texto = ft.Column([
-        ft.Divider(),
-        ft.Text("TÍTULOS DE CAMPEÃO (Pavilhão Sécil & Pavilhão Escola Luisa Todi):", weight="bold", size=12),
-        ft.Row([ft.Text("RAFAEL =", weight="bold"), ft.Text("🏆")], spacing=5),
-        ft.Row([ft.Text("RENATO =", weight="bold"), ft.Text("🏆")], spacing=5),
-        ft.Row([ft.Text("RUI =", weight="bold"), ft.Text("🏆")], spacing=5),
-        ft.Row([ft.Text("ABDUL =", weight="bold"), ft.Text("🏆")], spacing=5),
-        ft.Row([ft.Text("NUNO TAVARES =", weight="bold"), ft.Text("🏆🏆")], spacing=5),
-        ft.Row([ft.Text("CASCA =", weight="bold"), ft.Text("🏆🏆")], spacing=5),
-        ft.Row([ft.Text("JOÃO SILVA =", weight="bold"), ft.Text("🏆🏆")], spacing=5),
-        ft.Row([ft.Text("JOÃO GALOPIM =", weight="bold"), ft.Text("🏆")], spacing=5),
-    ], spacing=2)
+    def carregar_tesouraria():
+        jogadores = get_api("players/all") # Pega todos
+        lista_dividas.controls.clear()
+        dd_pagador.options.clear()
 
-    regras_texto = ft.Column([
-        ft.Divider(),
-        ft.Text("VITÓRIA = 3 PONTOS"),
-        ft.Text("EMPATE = 2 PONTOS"),
-        ft.Text("DERROTA = 1 PONTO"),
-        ft.Container(height=5),
-        ft.Text("* PENALIZAÇÃO DE -3 PONTOS POR FALTA DE COMPARÊNCIA", size=12),
-        ft.Text("1º CRITÉRIO DE DESEMPATE: MAIOR NUMERO DE JOGOS REALIZADOS", size=12, weight="bold"),
-        ft.Text("SEMANALMENTE AS EQUIPAS SÃO ESCOLHIDAS PELO 1º E 2º CLASSIFICADOS", size=12),
-        ft.Text("SÓ ENTRA NA TABELA QUEM TIVER PELO MENOS 50% DO TOTAL JOGOS REALIZADOS", size=12),
-        campeoes_texto
-    ], spacing=5)
-
-    # --- 3. LÓGICA DE LOGIN (PASSWORD) ---
-    pass_input = ft.TextField(label="Palavra-Passe", password=True, can_reveal_password=True)
-
-    def verificar_password(e):
-        if pass_input.value == ADMIN_PASSWORD:
-            state["is_admin"] = True
-            show_msg("Acesso Permitido! 🔓")
-            # Recarrega a página para mostrar o conteúdo Admin
-            page.go("/admin_unlocked")
-            construir_layout()
-        else:
-            show_msg("Senha Errada! 🔒", "red")
-
-    btn_login = ft.ElevatedButton("Entrar", on_click=verificar_password)
-
-    login_container = ft.Column([
-        ft.Text("Área Restrita", size=20, weight="bold"),
-        ft.Text("Insere a password de administrador:"),
-        pass_input,
-        btn_login
-    ], alignment=ft.MainAxisAlignment.CENTER)
-
-    # --- 4. CONTEÚDO ADMIN (Só aparece depois do login) ---
-    col_a = ft.Column(); col_b = ft.Column()
-
-    def carregar_jogadores():
-        jogadores = get_api("players/")
-        col_a.controls.clear(); col_b.controls.clear()
-        team_a_selected.clear(); team_b_selected.clear()
-
+        total_divida = 0
         for p in jogadores:
-            cba = ft.Checkbox(label=p['name']); cba.data = p['id']
-            team_a_selected.append(cba); col_a.controls.append(cba)
-            cbb = ft.Checkbox(label=p['name']); cbb.data = p['id']
-            team_b_selected.append(cbb); col_b.controls.append(cbb)
+            # Dropdown
+            dd_pagador.options.append(ft.dropdown.Option(key=str(p['id']), text=p['name']))
+
+            # Lista Visual
+            cor = "red" if p['balance'] < 0 else "green"
+            texto_saldo = f"{p['balance']:.2f}€"
+            if p['balance'] < 0: total_divida += p['balance']
+
+            lista_dividas.controls.append(
+                ft.Row([
+                    ft.Text(p['name'], weight="bold"),
+                    ft.Text(texto_saldo, color=cor, weight="bold")
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+            )
+
+        lista_dividas.controls.append(ft.Divider())
+        lista_dividas.controls.append(ft.Text(f"Dívida Total da Liga: {total_divida:.2f}€", color="red"))
         page.update()
 
-    dd_res = ft.Dropdown(label="Resultado", options=[
-        ft.dropdown.Option("TEAM_A", "Vitória Equipa A"), ft.dropdown.Option("TEAM_B", "Vitória equipa B"), ft.dropdown.Option("DRAW", "Empate")
-    ])
+    def registar_pagamento(e):
+        if not dd_pagador.value or not input_pagamento.value: return
+        try:
+            val = float(input_pagamento.value)
+            res = requests.post(f"{API_URL}/players/pay", json={"player_id": int(dd_pagador.value), "amount": val})
+            if res.status_code == 200:
+                show_msg(f"Pagamento de {val}€ aceite!")
+                input_pagamento.value = ""
+                carregar_tesouraria()
+            else: show_msg("Erro", "red")
+        except: show_msg("Valor inválido", "red")
+
+    btn_pagar = ft.ElevatedButton("Registar Pagamento 💰", on_click=registar_pagamento)
+
+    # --- 4. ADMIN ---
+    col_a = ft.Column(); col_b = ft.Column()
+    dd_campeao = ft.Dropdown(label="Quem ganhou a época?")
+
+    def carregar_admin():
+        jogadores = get_api("players/")
+        col_a.controls.clear(); col_b.controls.clear(); team_a_selected.clear(); team_b_selected.clear()
+        dd_campeao.options.clear()
+        for p in jogadores:
+            cba = ft.Checkbox(label=p['name']); cba.data = p['id']; team_a_selected.append(cba); col_a.controls.append(cba)
+            cbb = ft.Checkbox(label=p['name']); cbb.data = p['id']; team_b_selected.append(cbb); col_b.controls.append(cbb)
+            dd_campeao.options.append(ft.dropdown.Option(p['name']))
+        page.update()
+
+    dd_res = ft.Dropdown(label="Resultado", options=[ft.dropdown.Option("TEAM_A", "Vitória A"), ft.dropdown.Option("TEAM_B", "Vitória B"), ft.dropdown.Option("DRAW", "Empate")])
     chk_x2 = ft.Checkbox(label="Pontos x2?", fill_color="yellow")
 
     def gravar_jogo(e):
-        print("Botão Clicado...") # Vai aparecer no terminal
+        ids_a = [c.data for c in team_a_selected if c.value]
+        ids_b = [c.data for c in team_b_selected if c.value]
+        if not ids_a or not ids_b or not dd_res.value: show_msg("Falta info", "red"); return
         try:
-            ids_a = [c.data for c in team_a_selected if c.value]
-            ids_b = [c.data for c in team_b_selected if c.value]
+            requests.post(f"{API_URL}/matches/", json={"date": str(datetime.date.today()), "result": dd_res.value, "team_a_players": ids_a, "team_b_players": ids_b, "is_double_points": chk_x2.value})
+            show_msg("Jogo Gravado! (-3€ a cada jogador)"); carregar_tesouraria(); atualizar_tabela();
+            for c in team_a_selected + team_b_selected: c.value = False
+        except: show_msg("Erro", "red")
 
-            # Validação Básica
-            if not ids_a or not ids_b:
-                page.dialog = ft.AlertDialog(title=ft.Text("Erro"), content=ft.Text("Faltam jogadores nas equipas!"))
-                page.dialog.open = True
-                page.update()
-                return
+    btn_gravar = ft.ElevatedButton("Gravar Jogo (Custa 3€)", on_click=gravar_jogo)
 
-            if not dd_res.value:
-                page.dialog = ft.AlertDialog(title=ft.Text("Erro"), content=ft.Text("Quem ganhou o jogo? Escolhe o resultado."))
-                page.dialog.open = True
-                page.update()
-                return
+    # Fechar Época
+    def fechar_epoca(e):
+        if not dd_campeao.value: show_msg("Escolhe o Campeão!", "red"); return
+        if btn_close.text == "Fechar Época":
+            btn_close.text = "Tens a Certeza?"; btn_close.bgcolor = "orange"; page.update()
+            return
+        try:
+            requests.post(f"{API_URL}/season/close", json={"champion_name": dd_campeao.value, "season_name": "Época"})
+            show_msg("Época Fechada! Parabéns ao Campeão!"); carregar_galeria(); atualizar_tabela()
+            btn_close.text = "Fechar Época"; btn_close.bgcolor="red"
+        except: show_msg("Erro", "red")
 
-            payload = {
-                "date": str(datetime.date.today()),
-                "result": dd_res.value,
-                "team_a_players": ids_a,
-                "team_b_players": ids_b,
-                "is_double_points": chk_x2.value
-            }
+    btn_close = ft.ElevatedButton("Fechar Época", bgcolor="red", color="white", on_click=fechar_epoca)
 
-            print(f"A enviar: {payload}") # Debug no terminal
+    # Criar Jogador
+    new_name = ft.TextField(label="Novo Jogador");
+    def criar(e):
+        if new_name.value: requests.post(f"{API_URL}/players/", json={"name": new_name.value}); show_msg("Criado!"); carregar_admin(); new_name.value=""
+    btn_criar = ft.ElevatedButton("Criar", on_click=criar)
 
-            res = requests.post(f"{API_URL}/matches/", json=payload)
+    # --- LOGIN SYSTEM ---
+    pass_input = ft.TextField(label="Senha", password=True)
+    def login(e):
+        if pass_input.value == PASS_ADMIN:
+            state["role"] = "admin"; show_msg("Bem-vindo Admin 👑"); construir_layout()
+        elif pass_input.value == PASS_TESOUREIRO:
+            state["role"] = "treasurer"; show_msg("Bem-vindo Tesoureiro 💰"); construir_layout()
+        else: show_msg("Senha errada", "red")
 
-            if res.status_code == 200:
-                show_msg("JOGO GRAVADO COM SUCESSO! ⚽", "green")
-                # Limpar tudo
-                for c in team_a_selected + team_b_selected: c.value = False
-                dd_res.value = None
-                atualizar_tabela()
-            else:
-                # ERRO DO SERVIDOR - MOSTRAR POPUP
-                erro_detalhe = res.text
-                print(f"Erro 422 ou 500: {erro_detalhe}")
-                page.dialog = ft.AlertDialog(
-                    title=ft.Text(f"Erro {res.status_code}"),
-                    content=ft.Text(f"O servidor recusou os dados.\nVerifica se o main.py tem 'is_double_points'.\nDetalhe: {erro_detalhe}")
-                )
-                page.dialog.open = True
-                page.update()
+    view_login = ft.Column([ft.Text("Login Terças FC", size=20), pass_input, ft.ElevatedButton("Entrar", on_click=login)], alignment="center")
 
-        except Exception as ex:
-            print(f"Erro Técnico: {ex}")
-            page.dialog = ft.AlertDialog(title=ft.Text("Erro Técnico"), content=ft.Text(str(ex)))
-            page.dialog.open = True
-            page.update()
-
-    btn_gravar = ft.ElevatedButton("Gravar Jogo", on_click=gravar_jogo)
-
-    new_name = ft.TextField(label="Novo Jogador", expand=True)
-    def criar_j(e):
-        if new_name.value:
-            requests.post(f"{API_URL}/players/", json={"name": new_name.value})
-            show_msg("Criado!"); new_name.value=""; carregar_jogadores(); atualizar_tabela()
-    btn_criar = ft.ElevatedButton("Criar", on_click=criar_j)
-
-    # Reset
-    def reset_click(e):
-        if btn_reset.text == "Reiniciar Época (Reset)":
-            btn_reset.text = "Tens a Certeza?"; btn_reset.bgcolor = "orange"; page.update()
-        elif "C" in btn_reset.text:
-            requests.delete(f"{API_URL}/reset/"); show_msg("Reiniciado!"); btn_reset.text="Reiniciar Época (Reset)"; btn_reset.bgcolor="red"; atualizar_tabela(); page.update()
-    btn_reset = ft.ElevatedButton("Reiniciar Época (Reset)", bgcolor="red", color="white", on_click=reset_click)
-
-    # Layout Admin (Protegido)
-    admin_content = ft.Column([
-        ft.Text("Painel Admin 🔐", size=20, weight="bold", color="green"),
-        ft.Text("Registar Jogo", weight="bold"),
-        ft.Row([ft.Text("Equipas"), ft.IconButton(ft.Icons.REFRESH, on_click=lambda e: carregar_jogadores())]),
-        ft.Container(content=ft.Row([
-            ft.Column([ft.Text("Eq. A", color="green"), col_a], expand=True, scroll="auto"),
-            ft.VerticalDivider(width=1),
-            ft.Column([ft.Text("Eq. B", color="blue"), col_b], expand=True, scroll="auto")
-        ]), height=200, border=ft.border.all(1, "grey"), padding=5),
-        dd_res, chk_x2, btn_gravar,
-        ft.Divider(),
-        ft.Text("Gestão", weight="bold"),
-        ft.Row([new_name, btn_criar]),
-        ft.Container(height=10),
-        ft.Text("Perigo", color="red"), btn_reset
-    ], scroll="auto")
-
-    # --- CONSTRUÇÃO DO LAYOUT PRINCIPAL ---
+    # --- LAYOUT BUILDER ---
     def construir_layout():
-        # Define o conteúdo da Aba Admin com base no login
-        conteudo_aba_admin = admin_content if state["is_admin"] else login_container
-
-        # Recria as tabs
-        tabs = ft.Tabs(
-            selected_index=0,
-            tabs=[
-                ft.Tab(text="Classificação", icon=ft.Icons.LEADERBOARD, content=ft.Column([
-                    ft.Text("Tabela Atual", size=20, weight="bold"),
-                    ft.Row([tabela], scroll="always"),
-                    regras_texto
-                ], scroll="auto")),
-
-                ft.Tab(text="Admin", icon=ft.Icons.LOCK if not state["is_admin"] else ft.Icons.LOCK_OPEN, content=conteudo_aba_admin)
-            ],
-            expand=True
-        )
         page.clean()
-        page.add(tabs)
 
-    # Início
-    construir_layout()
-    atualizar_tabela()
-    carregar_jogadores()
+        # Tabs base
+        tabs_list = [
+            ft.Tab(text="Liga", icon=ft.Icons.LEADERBOARD, content=ft.Column([ft.Text("Classificação", size=20, weight="bold"), ft.Row([tabela], scroll="always"), galeria_container], scroll="auto"))
+        ]
 
+        # Se for Tesoureiro ou Admin, vê a Tesouraria
+        if state["role"] in ["admin", "treasurer"]:
+            carregar_tesouraria()
+            tabs_list.append(ft.Tab(text="Tesouraria", icon=ft.Icons.EURO, content=ft.Column([
+                ft.Text("Gestão de Dívidas", size=20),
+                ft.Row([dd_pagador, input_pagamento], alignment="center"), btn_pagar, ft.Divider(),
+                lista_dividas
+            ], scroll="auto")))
+
+        # Se for Admin, vê a gestão
+        if state["role"] == "admin":
+            carregar_admin()
+            tabs_list.append(ft.Tab(text="Admin", icon=ft.Icons.SETTINGS, content=ft.Column([
+                ft.Text("Registar Jogo", weight="bold"),
+                ft.Container(content=ft.Row([
+                    ft.Column([ft.Text("Eq. A", color="green"), col_a]), ft.VerticalDivider(), ft.Column([ft.Text("Eq. B", color="blue"), col_b])
+                ]), height=200, border=ft.border.all(1, "grey"), padding=5),
+                dd_res, chk_x2, btn_gravar, ft.Divider(),
+                ft.Text("Gestão", weight="bold"), ft.Row([new_name, btn_criar]), ft.Divider(),
+                ft.Text("Fim de Época", color="red"), dd_campeao, btn_close
+            ], scroll="auto")))
+
+        t = ft.Tabs(selected_index=0, tabs=tabs_list, expand=True)
+        page.add(t)
+
+    # INICIO: Se não estiver logado, mostra login.
+    # Mas queremos que a Tabela seja publica? Se sim, mudamos a logica.
+    # Para já, mostra Login primeiro para segurança.
+    page.add(view_login)
+
+# Render deploy
 app = ft.app(target=main, export_asgi_app=True)

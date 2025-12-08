@@ -17,11 +17,11 @@ from pydantic import BaseModel
 # Lê a variável de ambiente. Se não existir, usa SQLite.
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./football.db")
 
-# Fix para compatibilidade Render/Neon (postgres -> postgresql)
+# Fix para compatibilidade Render/Supabase (postgres -> postgresql)
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# LOG DE DIAGNÓSTICO (Vai aparecer nos Logs do Render)
+# LOG DE DIAGNÓSTICO
 if "sqlite" in DATABASE_URL:
     print("⚠️ ATENÇÃO: A APP ESTÁ A USAR SQLITE (DADOS TEMPORÁRIOS)!")
 else:

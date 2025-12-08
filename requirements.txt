@@ -1,6 +1,6 @@
 ## List of libraries
 
-flet==0.21.2
+flet
 requests
 fastapi
 uvicorn

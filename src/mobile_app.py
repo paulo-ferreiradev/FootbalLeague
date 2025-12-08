@@ -7,69 +7,79 @@ import time
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
+# API Backend URL (Update if Render URL changes)
 API_URL = "https://tercas-fc-api.onrender.com"
 
 # Role Access Credentials
-ADMIN_PASSWORD = "1234"
-TREASURER_PASSWORD = "money"
+ADMIN_PASSWORD = "1234"      # Master Access (All Tabs)
+TREASURER_PASSWORD = "money" # Treasury Tab Only
+MANAGER_PASSWORD = "bola"    # Game Registration Tab Only
 
 # =============================================================================
 # MAIN APPLICATION
 # =============================================================================
 def main(page: ft.Page):
-    # --- Page Settings ---
+    # --- Page Configuration ---
     page.title = "Terças FC"
     page.theme_mode = ft.ThemeMode.DARK
     page.scroll = ft.ScrollMode.AUTO
     page.padding = 10
 
-    # --- App State ---
+    # --- Application State ---
     state = {
-        "role": None  # Options: 'admin', 'treasurer', or None
+        "role": None,  # Can be 'admin', 'treasurer', 'manager' or None (Public)
     }
 
-    # Global lists for selection
+    # Global references for team selection
     team_a_checkboxes = []
     team_b_checkboxes = []
+
+    # Global references for UI containers
+    col_team_a = ft.Column()
+    col_team_b = ft.Column()
 
     # =========================================================================
     # HELPER FUNCTIONS
     # =========================================================================
     def show_toast(message: str, color: str = "green"):
-        """Displays a snackbar message."""
-        page.snack_bar = ft.SnackBar(content=ft.Text(message), bgcolor=color)
+        """Displays a temporary snackbar message."""
+        page.snack_bar = ft.SnackBar(
+            content=ft.Text(message),
+            bgcolor=color
+        )
         page.snack_bar.open = True
         page.update()
 
     def fetch_api(endpoint: str):
-        """Safe API GET request handler."""
+        """Safe wrapper for API GET requests."""
         try:
             response = requests.get(f"{API_URL}/{endpoint}")
             return response.json() if response.status_code == 200 else []
-        except Exception:
+        except Exception as e:
+            print(f"API Error: {e}")
             return []
 
     # =========================================================================
-    # UI: LEADERBOARD & HISTORY
+    # UI: LEADERBOARD TAB
     # =========================================================================
 
-    # 1. Leaderboard Table
+    # 1. Main Data Table
     leaderboard_table = ft.DataTable(
         columns=[
             ft.DataColumn(ft.Text("Pos")),
             ft.DataColumn(ft.Text("Nome")),
-            ft.DataColumn(ft.Text("P"), numeric=True),
-            ft.DataColumn(ft.Text("J"), numeric=True),
-            ft.DataColumn(ft.Text("V"), numeric=True),
-            ft.DataColumn(ft.Text("E"), numeric=True),
-            ft.DataColumn(ft.Text("D"), numeric=True),
+            ft.DataColumn(ft.Text("P"), numeric=True, tooltip="Points"),
+            ft.DataColumn(ft.Text("J"), numeric=True, tooltip="Games"),
+            ft.DataColumn(ft.Text("V"), numeric=True, tooltip="Wins"),
+            ft.DataColumn(ft.Text("E"), numeric=True, tooltip="Draws"),
+            ft.DataColumn(ft.Text("D"), numeric=True, tooltip="Losses"),
         ],
         rows=[],
         column_spacing=5
     )
 
     def refresh_leaderboard():
-        """Fetches data and populates the table."""
+        """Fetches table data and redraws the rows."""
         data = fetch_api("table/")
         leaderboard_table.rows.clear()
 
@@ -79,7 +89,6 @@ def main(page: ft.Page):
                     cells=[
                         ft.DataCell(ft.Text(str(i + 1))),
                         ft.DataCell(ft.Text(player['name'], weight="bold", size=13)),
-                        # FIX: Used strings for colors instead of ft.colors objects
                         ft.DataCell(ft.Text(str(player['points']), color="yellow", weight="bold")),
                         ft.DataCell(ft.Text(str(player['games_played']))),
                         ft.DataCell(ft.Text(str(player['wins']), color="green")),
@@ -90,138 +99,159 @@ def main(page: ft.Page):
             )
         page.update()
 
-    # Background Auto-Update Thread
+    # Background Thread for Auto-Update
     def auto_update_loop():
         while True:
             time.sleep(15)
             try:
                 refresh_leaderboard()
-            except:
+            except Exception:
                 pass
 
     threading.Thread(target=auto_update_loop, daemon=True).start()
 
-    # 2. History and Rules (Static + Dynamic)
+    # 2. History & Rules Section
 
-    # Dynamic container for new champions
-    dynamic_champions_view = ft.Column()
+    # Container for NEW champions (Dynamic from DB)
+    new_champions_container = ft.Column()
 
     def refresh_new_champions():
+        """Fetches champions from DB and displays them."""
         champions = fetch_api("champions/")
-        dynamic_champions_view.controls.clear()
+        new_champions_container.controls.clear()
 
         if champions:
-            dynamic_champions_view.controls.append(
+            new_champions_container.controls.append(
                 ft.Text("NOVOS CAMPEÕES (App):", weight="bold", size=12, color="green")
             )
             for c in champions:
                 trophies = "🏆" * c['titles']
-                dynamic_champions_view.controls.append(
+                new_champions_container.controls.append(
                     ft.Row(
-                        [ft.Text(f"{c['name'].upper()} =", weight="bold"), ft.Text(trophies)],
+                        [
+                            ft.Text(f"{c['name'].upper()} =", weight="bold"),
+                            ft.Text(trophies)
+                        ],
                         spacing=5
                     )
                 )
         page.update()
 
-    # Static History (Hardcoded as requested)
-    static_history_view = ft.Column([
-        ft.Divider(),
-        ft.Text("TÍTULOS DE CAMPEÃO (Pavilhão Sécil & Pavilhão Escola Luisa Todi):", weight="bold", size=12),
-        ft.Row([ft.Text("RAFAEL =", weight="bold"), ft.Text("🏆")], spacing=5),
-        ft.Row([ft.Text("RENATO =", weight="bold"), ft.Text("🏆")], spacing=5),
-        ft.Row([ft.Text("RUI =", weight="bold"), ft.Text("🏆")], spacing=5),
-        ft.Row([ft.Text("ABDUL =", weight="bold"), ft.Text("🏆")], spacing=5),
-        ft.Row([ft.Text("NUNO TAVARES =", weight="bold"), ft.Text("🏆🏆")], spacing=5),
-        ft.Row([ft.Text("CASCA =", weight="bold"), ft.Text("🏆🏆")], spacing=5),
-        ft.Row([ft.Text("JOÃO SILVA =", weight="bold"), ft.Text("🏆🏆")], spacing=5),
-        ft.Row([ft.Text("JOÃO GALOPIM =", weight="bold"), ft.Text("🏆")], spacing=5),
+    # Static History Container (The Legacy Data)
+    static_history_view = ft.Column(
+        controls=[
+            ft.Divider(),
+            ft.Text("TÍTULOS DE CAMPEÃO (Pavilhão Sécil & Pavilhão Escola Luisa Todi):", weight="bold", size=12),
+            ft.Row([ft.Text("RAFAEL =", weight="bold"), ft.Text("🏆")], spacing=5),
+            ft.Row([ft.Text("RENATO =", weight="bold"), ft.Text("🏆")], spacing=5),
+            ft.Row([ft.Text("RUI =", weight="bold"), ft.Text("🏆")], spacing=5),
+            ft.Row([ft.Text("ABDUL =", weight="bold"), ft.Text("🏆")], spacing=5),
+            ft.Row([ft.Text("NUNO TAVARES =", weight="bold"), ft.Text("🏆🏆")], spacing=5),
+            ft.Row([ft.Text("CASCA =", weight="bold"), ft.Text("🏆🏆")], spacing=5),
+            ft.Row([ft.Text("JOÃO SILVA =", weight="bold"), ft.Text("🏆🏆")], spacing=5),
+            ft.Row([ft.Text("JOÃO GALOPIM =", weight="bold"), ft.Text("🏆")], spacing=5),
 
-        # Append dynamic section here
-        dynamic_champions_view
-    ], spacing=2)
+            # Append dynamic champions below static ones
+            new_champions_container
+        ],
+        spacing=2
+    )
 
-    # Rules Section
-    rules_view = ft.Column([
-        ft.Divider(),
-        ft.Text("VITÓRIA = 3 PONTOS"),
-        ft.Text("EMPATE = 2 PONTOS"),
-        ft.Text("DERROTA = 1 PONTO"),
-        ft.Container(height=10),
-        ft.Text("* PENALIZAÇÃO DE -3 PONTOS POR FALTA DE COMPARÊNCIA", size=12),
-        ft.Text("1º CRITÉRIO DE DESEMPATE: MAIOR NUMERO DE JOGOS REALIZADOS", size=12, weight="bold"),
-        ft.Text("SEMANALMENTE AS EQUIPAS SÃO ESCOLHIDAS PELO 1º E 2º CLASSIFICADOS", size=12),
-        ft.Text("SÓ ENTRA NA TABELA QUEM TIVER PELO MENOS 50% DO TOTAL JOGOS REALIZADOS", size=12),
+    # Combined Rules View
+    rules_text_view = ft.Column(
+        controls=[
+            ft.Divider(),
+            ft.Text("VITÓRIA = 3 PONTOS"),
+            ft.Text("EMPATE = 2 PONTOS"),
+            ft.Text("DERROTA = 1 PONTO"),
+            ft.Container(height=10),
+            ft.Text("* PENALIZAÇÃO DE -3 PONTOS POR FALTA DE COMPARÊNCIA", size=12),
+            ft.Text("1º CRITÉRIO DE DESEMPATE: MAIOR NUMERO DE JOGOS REALIZADOS", size=12, weight="bold"),
+            ft.Text("SEMANALMENTE AS EQUIPAS SÃO ESCOLHIDAS PELO 1º E 2º CLASSIFICADOS", size=12),
+            ft.Text("SÓ ENTRA NA TABELA QUEM TIVER PELO MENOS 50% DO TOTAL JOGOS REALIZADOS", size=12),
 
-        static_history_view
-    ], spacing=5)
+            static_history_view
+        ],
+        spacing=5
+    )
 
     # =========================================================================
-    # UI: TREASURY
+    # UI: TREASURY TAB
     # =========================================================================
     debt_list_view = ft.Column()
-    payment_input = ft.TextField(label="Valor (€)", width=100, keyboard_type=ft.KeyboardType.NUMBER)
+    payment_amount_input = ft.TextField(label="Valor (€)", width=100, keyboard_type=ft.KeyboardType.NUMBER)
     payer_dropdown = ft.Dropdown(label="Quem pagou?", expand=True)
 
-    def refresh_treasury():
+    def refresh_treasury_data():
+        """Fetches all players and calculates balances."""
         players = fetch_api("players/all")
 
         debt_list_view.controls.clear()
         payer_dropdown.options.clear()
+
         total_debt = 0.0
 
         for p in players:
-            # Dropdown population
+            # Populate dropdown
             payer_dropdown.options.append(ft.dropdown.Option(key=str(p['id']), text=p['name']))
 
-            # Visual List
-            # FIX: Used string colors
-            color = "red" if p['balance'] < 0 else "green"
-            balance_text = f"{p['balance']:.2f}€"
+            # Calculate Visuals
+            balance = p['balance']
+            color = "red" if balance < 0 else "green"
 
-            if p['balance'] < 0:
-                total_debt += p['balance']
+            if balance < 0:
+                total_debt += balance
 
             debt_list_view.controls.append(
-                ft.Row([
-                    ft.Text(p['name'], weight="bold"),
-                    ft.Text(balance_text, color=color, weight="bold")
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+                ft.Row(
+                    [
+                        ft.Text(p['name'], weight="bold"),
+                        ft.Text(f"{balance:.2f}€", color=color, weight="bold")
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                )
             )
 
         debt_list_view.controls.append(ft.Divider())
         debt_list_view.controls.append(
-            ft.Text(f"Dívida Total da Liga: {total_divida:.2f}€" if 'total_divida' in locals() else f"Total: {total_debt:.2f}€", color="red")
+            ft.Text(f"Dívida Total da Liga: {total_debt:.2f}€", color="red", weight="bold")
         )
         page.update()
 
     def submit_payment(e):
-        if not payer_dropdown.value or not payment_input.value:
+        if not payer_dropdown.value or not payment_amount_input.value:
             return
+
         try:
-            amount = float(payment_input.value)
-            res = requests.post(f"{API_URL}/players/pay", json={"player_id": int(payer_dropdown.value), "amount": amount})
-            if res.status_code == 200:
-                show_toast(f"Pagamento de {amount}€ aceite!")
-                payment_input.value = ""
-                refresh_treasury()
+            amount = float(payment_amount_input.value)
+            payload = {
+                "player_id": int(payer_dropdown.value),
+                "amount": amount
+            }
+
+            response = requests.post(f"{API_URL}/players/pay", json=payload)
+
+            if response.status_code == 200:
+                show_toast(f"Pagamento de {amount}€ aceite!", "green")
+                payment_amount_input.value = ""
+                refresh_treasury_data()
             else:
-                show_toast("Erro ao processar", "red")
+                show_toast("Erro ao processar pagamento", "red")
         except:
             show_toast("Valor inválido", "red")
 
     btn_submit_payment = ft.ElevatedButton("Registar Pagamento 💰", on_click=submit_payment)
 
     # =========================================================================
-    # UI: ADMIN
+    # UI: ADMIN TAB (GAMES)
     # =========================================================================
-    col_team_a = ft.Column()
-    col_team_b = ft.Column()
     champion_dropdown = ft.Dropdown(label="Quem ganhou a época?")
 
     def refresh_admin_data():
+        """Loads players for game registration."""
         players = fetch_api("players/")
 
+        # Reset controls
         col_team_a.controls.clear()
         col_team_b.controls.clear()
         team_a_checkboxes.clear()
@@ -229,12 +259,13 @@ def main(page: ft.Page):
         champion_dropdown.options.clear()
 
         for p in players:
-            # Checkboxes
+            # Team A Checkbox
             cb_a = ft.Checkbox(label=p['name'], value=False)
             cb_a.data = p['id']
             team_a_checkboxes.append(cb_a)
             col_team_a.controls.append(cb_a)
 
+            # Team B Checkbox
             cb_b = ft.Checkbox(label=p['name'], value=False)
             cb_b.data = p['id']
             team_b_checkboxes.append(cb_b)
@@ -245,6 +276,7 @@ def main(page: ft.Page):
 
         page.update()
 
+    # Game Inputs
     result_dropdown = ft.Dropdown(
         label="Resultado",
         options=[
@@ -254,15 +286,14 @@ def main(page: ft.Page):
         ]
     )
 
-    # FIX: String color
-    double_points_chk = ft.Checkbox(label="Pontos x2?", fill_color="yellow")
+    double_points_check = ft.Checkbox(label="Pontos x2?", fill_color="yellow")
 
     def submit_game(e):
-        ids_a = [c.data for c in team_a_checkboxes if c.value]
-        ids_b = [c.data for c in team_b_checkboxes if c.value]
+        ids_a = [cb.data for cb in team_a_checkboxes if cb.value]
+        ids_b = [cb.data for cb in team_b_checkboxes if cb.value]
 
-        if not ids_a or not ids_b or not result_dropdown.value:
-            show_toast("Falta informação", "red")
+        if not ids_a or not ids_b:
+            show_toast("Falta informação nas equipas", "red")
             return
 
         try:
@@ -271,33 +302,34 @@ def main(page: ft.Page):
                 "result": result_dropdown.value,
                 "team_a_players": ids_a,
                 "team_b_players": ids_b,
-                "is_double_points": double_points_chk.value
+                "is_double_points": double_points_check.value
             }
+
             requests.post(f"{API_URL}/matches/", json=payload)
 
-            show_toast("Jogo Gravado! (-3€ a cada jogador)")
-            refresh_treasury()
+            show_toast("Jogo Gravado! (-3€ a cada jogador)", "green")
+            refresh_treasury_data()
             refresh_leaderboard()
 
-            # Reset inputs
-            for c in team_a_checkboxes + team_b_checkboxes:
-                c.value = False
+            # Reset checks
+            for cb in team_a_checkboxes + team_b_checkboxes:
+                cb.value = False
+            page.update()
 
-        except:
-            show_toast("Erro de conexão", "red")
+        except Exception as err:
+            show_toast(f"Erro: {err}", "red")
 
-    btn_save_game = ft.ElevatedButton("Gravar Jogo (Custa 3€)", on_click=submit_game)
+    btn_submit_game = ft.ElevatedButton("Gravar Jogo (Custa 3€)", on_click=submit_game)
 
-    # Close Season Logic
-    def close_season(e):
+    # Season Management
+    def close_season_handler(e):
         if not champion_dropdown.value:
             show_toast("Escolhe o Campeão!", "red")
             return
 
-        # Confirmation step
         if btn_close_season.text == "Fechar Época":
             btn_close_season.text = "Tens a Certeza?"
-            btn_close_season.bgcolor = "orange" # FIX: String color
+            btn_close_season.bgcolor = "orange"
             page.update()
             return
 
@@ -306,30 +338,35 @@ def main(page: ft.Page):
                 f"{API_URL}/season/close",
                 json={"champion_name": champion_dropdown.value, "season_name": "Época"}
             )
-            show_toast("Época Fechada! Parabéns ao Campeão!")
+            show_toast("Época Fechada! Parabéns ao Campeão!", "green")
             refresh_new_champions()
             refresh_leaderboard()
-
-            # Reset button
             btn_close_season.text = "Fechar Época"
-            btn_close_season.bgcolor = "red" # FIX: String color
-
+            btn_close_season.bgcolor = "red"
         except:
-            show_toast("Erro no servidor", "red")
+            show_toast("Erro ao fechar época", "red")
 
-    btn_close_season = ft.ElevatedButton("Fechar Época", bgcolor="red", color="white", on_click=close_season)
+    btn_close_season = ft.ElevatedButton(
+        "Fechar Época",
+        bgcolor="red",
+        color="white",
+        on_click=close_season_handler
+    )
 
-    # Create Player Logic
+    # Player Creation
     new_player_input = ft.TextField(label="Novo Jogador")
 
-    def create_player(e):
+    def create_player_handler(e):
         if new_player_input.value:
-            requests.post(f"{API_URL}/players/", json={"name": new_player_input.value})
-            show_toast("Criado!")
-            refresh_admin_data()
-            new_player_input.value = ""
+            try:
+                requests.post(f"{API_URL}/players/", json={"name": new_player_input.value})
+                show_toast("Criado!", "green")
+                refresh_admin_data()
+                new_player_input.value = ""
+            except:
+                show_toast("Erro: Jogador já existe?", "red")
 
-    btn_create_player = ft.ElevatedButton("Criar", on_click=create_player)
+    btn_create_player = ft.ElevatedButton("Criar", on_click=create_player_handler)
 
     # =========================================================================
     # LOGIN SYSTEM
@@ -337,25 +374,38 @@ def main(page: ft.Page):
     password_input = ft.TextField(label="Senha", password=True)
 
     def handle_login(e):
-        if password_input.value == ADMIN_PASSWORD:
+        input_val = password_input.value
+
+        # 1. Master Admin (Access Everything)
+        if input_val == ADMIN_PASSWORD:
             state["role"] = "admin"
-            show_toast("Bem-vindo Admin 👑")
-            build_layout()
-        elif password_input.value == TREASURER_PASSWORD:
+            show_toast("Bem-vindo Admin (Mestre) 👑")
+            build_main_layout()
+
+        # 2. Treasurer (Access Money only)
+        elif input_val == TREASURER_PASSWORD:
             state["role"] = "treasurer"
             show_toast("Bem-vindo Tesoureiro 💰")
-            build_layout()
+            build_main_layout()
+
+        # 3. Game Manager (Access Games only)
+        elif input_val == MANAGER_PASSWORD:
+            state["role"] = "manager"
+            show_toast("Bem-vindo Marcador ⚽")
+            build_main_layout()
+
         else:
             show_toast("Senha errada", "red")
 
     login_view = ft.Column(
         [
-            ft.Text("Área Restrita", size=20),
+            ft.Text("Área Restrita", size=20, weight="bold"),
             password_input,
             ft.ElevatedButton("Entrar", on_click=handle_login),
-            ft.TextButton("Voltar à Tabela", on_click=lambda e: build_layout())
+            ft.TextButton("Voltar à Tabela", on_click=lambda e: build_main_layout())
         ],
-        alignment=ft.MainAxisAlignment.CENTER
+        alignment=ft.MainAxisAlignment.CENTER,
+        horizontal_alignment=ft.CrossAxisAlignment.CENTER
     )
 
     def navigate_to_login(e):
@@ -365,20 +415,23 @@ def main(page: ft.Page):
     # =========================================================================
     # LAYOUT BUILDER
     # =========================================================================
-    def build_layout():
+    def build_main_layout():
         page.clean()
 
-        # 1. Top Bar
+        # Top Bar
         page.appbar = ft.AppBar(
             title=ft.Text("Terças FC"),
             center_title=False,
-            bgcolor="surface_variant", # FIX: String color
+            bgcolor="surface_variant",
             actions=[
-                ft.IconButton(ft.Icons.PERSON, on_click=navigate_to_login, tooltip="Login Admin")
+                ft.IconButton(
+                    ft.Icons.PERSON,
+                    on_click=navigate_to_login,
+                    tooltip="Login"
+                )
             ]
         )
 
-        # 2. Define Tabs
         # Tab 1: Public League (Always visible)
         tabs_list = [
             ft.Tab(
@@ -387,17 +440,17 @@ def main(page: ft.Page):
                 content=ft.Column(
                     [
                         ft.Text("Classificação", size=20, weight="bold"),
-                        ft.Row([leaderboard_table], scroll="always"),
-                        rules_view
+                        ft.Row([leaderboard_table], scroll=ft.ScrollMode.ALWAYS),
+                        rules_text_view
                     ],
-                    scroll="auto"
+                    scroll=ft.ScrollMode.AUTO
                 )
             )
         ]
 
-        # Tab 2: Treasury (Admin/Treasurer)
+        # Tab 2: Treasury (Admin OR Treasurer)
         if state["role"] in ["admin", "treasurer"]:
-            refresh_treasury()
+            carregar_tesouraria()
             tabs_list.append(
                 ft.Tab(
                     text="Tesouraria",
@@ -405,19 +458,19 @@ def main(page: ft.Page):
                     content=ft.Column(
                         [
                             ft.Text("Gestão de Dívidas", size=20),
-                            ft.Row([payer_dropdown, payment_input], alignment="center"),
-                            btn_submit_payment,
+                            ft.Row([dd_pagador, input_pagamento], alignment="center"),
+                            btn_pagar,
                             ft.Divider(),
-                            debt_list_view
+                            lista_dividas
                         ],
-                        scroll="auto"
+                        scroll=ft.ScrollMode.AUTO
                     )
                 )
             )
 
-        # Tab 3: Admin (Admin only)
-        if state["role"] == "admin":
-            refresh_admin_data()
+        # Tab 3: Admin/Games (Admin OR Manager)
+        if state["role"] in ["admin", "manager"]:
+            carregar_admin()
             tabs_list.append(
                 ft.Tab(
                     text="Admin",
@@ -428,41 +481,48 @@ def main(page: ft.Page):
                             ft.Container(
                                 content=ft.Row(
                                     [
-                                        ft.Column([ft.Text("Eq. A", color="green"), col_team_a]),
+                                        ft.Column(
+                                            [ft.Text("Eq. A", color="green"), col_team_a],
+                                            expand=True,
+                                            scroll=ft.ScrollMode.AUTO
+                                        ),
                                         ft.VerticalDivider(),
-                                        ft.Column([ft.Text("Eq. B", color="blue"), col_team_b])
+                                        ft.Column(
+                                            [ft.Text("Eq. B", color="blue"), col_team_b],
+                                            expand=True,
+                                            scroll=ft.ScrollMode.AUTO
+                                        )
                                     ]
                                 ),
-                                height=200,
+                                height=250,
                                 border=ft.border.all(1, "grey"),
                                 padding=5
                             ),
-                            result_dropdown,
-                            double_points_chk,
-                            btn_save_game,
+                            dd_res,
+                            chk_x2,
+                            btn_gravar,
                             ft.Divider(),
 
                             ft.Text("Gestão", weight="bold"),
-                            ft.Row([new_player_input, btn_create_player]),
+                            ft.Row([new_name, btn_criar]),
                             ft.Divider(),
 
                             ft.Text("Fim de Época", color="red"),
-                            champion_dropdown,
-                            btn_close_season
+                            dd_campeao,
+                            btn_close
                         ],
-                        scroll="auto"
+                        scroll=ft.ScrollMode.AUTO
                     )
                 )
             )
 
-        # 3. Add Tabs to Page
         t = ft.Tabs(selected_index=0, tabs=tabs_list, expand=True)
         page.add(t)
 
-    # --- Start ---
+    # --- Initial Execution ---
     refresh_leaderboard()
     refresh_new_champions()
-    build_layout()
+    build_main_layout()
 
 # =============================================================================
 # EXPOSE APP FOR RENDER (ASGI)

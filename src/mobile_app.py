@@ -295,7 +295,7 @@ def main(page: ft.Page):
                 "result": result_dropdown.value,
                 "team_a_players": ids_a,
                 "team_b_players": ids_b,
-                "is_double_points": double_points_check.value
+                "is_double_points": double_points_chk.value
             }
 
             requests.post(f"{API_URL}/matches/", json=payload)

@@ -1,0 +1,42 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Flet Build Tool
+        run: pip install flet
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.x'
+
+      - name: Create Keystore File
+
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
+
+      - name: Build APK
+
+        run: |
+          flet build apk --store-file android/app/upload-keystore.jks \
+          --store-password ${{ secrets.KEYSTORE_PASSWORD }} \
+          --key-alias ${{ secrets.KEY_ALIAS }} \
+          --key-password ${{ secrets.KEY_PASSWORD }}
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: football_league_apk
+          path: build/app/outputs/flutter-apk/app-release.apk

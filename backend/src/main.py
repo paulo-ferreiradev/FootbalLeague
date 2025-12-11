@@ -27,7 +27,7 @@ MATCH_MINUTE = 30       # 30 minutos
 
 # Abertura da Convocatória
 OPEN_DAY = 2            # Quarta-feira 
-OPEN_HOUR = 09          # 09:00 da manhã
+OPEN_HOUR = 9          # 09:00 da manhã
 
 # Fecho da Convocatória: Terça-feira (1)
 CLOSE_DAY = 1           # Própria Terça

@@ -574,4 +574,5 @@ def main(page: ft.Page):
     build_layout()
 
 # Run the app
-app = ft.app(target=main, export_asgi_app=True, assets_dir="src/assets")
+if __name__ == "__main__":
+    ft.app(target=main, export_asgi_app=True, assets_dir="assets")

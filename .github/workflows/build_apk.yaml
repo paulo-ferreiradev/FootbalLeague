@@ -32,7 +32,6 @@ jobs:
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
 
-      # --- NOVO PASSO: Trocar para os requirements limpos do Android ---
       - name: Use Mobile Requirements
         run: cp requirements_apk.txt requirements.txt
       # -----------------------------------------------------------------
@@ -44,10 +43,10 @@ jobs:
           FLUTTER_BUILD_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           FLUTTER_BUILD_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          flet build apk --module-name run
+          flet build apk --module-name run --product-name "Terças FC" --org "com.tercasfc"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: football_league_apk
-          path: build/apk/app-release.apk
+          path: build/apk/tercasfc.apk

@@ -45,6 +45,12 @@ class _MatchCardState extends State<MatchCard> {
       if (difference.isNegative) {
         timer.cancel();
         setState(() => _timeLeft = "Tempo Esgotado!");
+      } else if (difference.inDays >= 1) {
+        setState(() {
+          final plural = difference.inDays == 1 ? '' : 's';
+          final hours = (difference.inHours % 24);
+          _timeLeft = "${difference.inDays} dia$plural e ${hours}h";
+        });
       } else {
         // Formatar para HH:MM:SS
         final hours = difference.inHours.toString().padLeft(2, '0');

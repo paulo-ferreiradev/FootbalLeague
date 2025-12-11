@@ -338,9 +338,10 @@ def get_next_match(db: Session = Depends(get_db)):
         else:
             next_match = exists
 
-    # 3. Calcula se está aberto ou fechado
     match_dt = datetime.strptime(f"{next_match.date} {next_match.time}", "%Y-%m-%d %H:%M")
-    is_open, _, _ = is_convocation_open(match_dt)
+    
+    # AQUI: Guardamos o close_dt em vez de deitar fora
+    is_open, open_dt, close_dt = is_convocation_open(match_dt) 
     
     confirmed_count = db.query(Attendance)\
         .filter(Attendance.match_id == next_match.id, Attendance.status == "going")\
@@ -353,7 +354,8 @@ def get_next_match(db: Session = Depends(get_db)):
         "location": next_match.location,
         "opponent": next_match.opponent,
         "confirmed_players": confirmed_count,
-        "is_open": is_open 
+        "is_open": is_open,
+        "close_date": close_dt.isoformat()
     }
 
 # Endpoint to confirme presence

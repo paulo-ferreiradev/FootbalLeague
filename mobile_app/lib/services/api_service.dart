@@ -44,4 +44,30 @@ class ApiService {
       return null;
     }
   }
+
+  Future<bool> updateAttendance(
+    int matchId,
+    int playerId,
+    String status,
+  ) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/matches/attend'),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "match_id": matchId,
+          "player_id": playerId,
+          "status": status, // "going" ou "not_going"
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        return true;
+      }
+      return false;
+    } catch (e) {
+      print("Erro ao marcar presença: $e");
+      return false;
+    }
+  }
 }

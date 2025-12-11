@@ -5,6 +5,7 @@ class Match {
   final String location;
   final String opponent;
   final int confirmedPlayers;
+  final bool isOpen;
 
   Match({
     required this.id,
@@ -13,6 +14,7 @@ class Match {
     required this.location,
     required this.opponent,
     required this.confirmedPlayers,
+    required this.isOpen,
   });
 
   factory Match.fromJson(Map<String, dynamic> json) {
@@ -23,6 +25,7 @@ class Match {
       location: json['location'] ?? "Campo Principal",
       opponent: json['opponent'] ?? "Treino",
       confirmedPlayers: json['confirmed_players'] ?? 0,
+      isOpen: json['is_open'] ?? false,
     );
   }
 }

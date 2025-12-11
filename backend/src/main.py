@@ -15,6 +15,23 @@ from sqlalchemy import create_engine, Column, Integer, String, Date, ForeignKey,
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship, Session
 from pydantic import BaseModel
+from datetime import datetime, timedelta
+
+# =============================================================================
+# Game Settings
+# =============================================================================
+
+MATCH_DAY = 1           # O jogo é à Terça
+MATCH_HOUR = 22         # 22 horas
+MATCH_MINUTE = 30       # 30 minutos
+
+# Abertura da Convocatória
+OPEN_DAY = 2            # Quarta-feira 
+OPEN_HOUR = 09          # 09:00 da manhã
+
+# Fecho da Convocatória: Terça-feira (1)
+CLOSE_DAY = 1           # Própria Terça
+CLOSE_HOUR = 19         # 19:00
 
 # =============================================================================
 # 1. DATABASE CONFIGURATION & SETUP
@@ -162,6 +179,11 @@ class ArchiveSchema(BaseModel):
     class Config:
         from_attributes = True
 
+class AttendanceRequest(BaseModel):
+    match_id: int
+    player_id: int
+    status: str  # "going", "not_going"
+
 # =============================================================================
 # 4. BUSINESS LOGIC & API ENDPOINTS
 # =============================================================================
@@ -187,6 +209,39 @@ def get_db():
         yield db
     finally:
         db.close()
+
+# --- FUNÇÕES AUXILIARES (DATAS) ---
+
+def get_next_tuesday_date():
+    """Calcula a data e hora da próxima Terça-feira às 22h30."""
+    now = datetime.now()
+    days_ahead = MATCH_DAY - now.weekday()
+    
+    # Se já passou a hora do jogo de hoje, salta para a próxima semana
+    if days_ahead < 0 or (days_ahead == 0 and now.hour > MATCH_HOUR):
+        days_ahead += 7
+        
+    next_date = now + timedelta(days=days_ahead)
+    return next_date.replace(hour=MATCH_HOUR, minute=MATCH_MINUTE, second=0, microsecond=0)
+
+def is_convocation_open(match_datetime):
+    """Verifica se estamos dentro da janela de abertura/fecho."""
+    now = datetime.now()
+    
+    # Calcular Abertura
+    days_back_open = (match_datetime.weekday() - OPEN_DAY) % 7
+    if days_back_open == 0 and OPEN_DAY != MATCH_DAY: 
+        days_back_open = 7
+
+    open_date = match_datetime - timedelta(days=days_back_open)
+    open_date = open_date.replace(hour=OPEN_HOUR, minute=0, second=0)
+
+    # Calcular Fecho
+    close_date = match_datetime.replace(hour=CLOSE_HOUR, minute=0, second=0)
+
+    return open_date <= now <= close_date, open_date, close_date
+
+# ----------------------------------
 
 def calculate_table_stats(db: Session) -> List[Dict[str, Any]]:
     """
@@ -252,34 +307,88 @@ def get_table(db: Session = Depends(get_db)):
 
 @app.get("/matches/next")
 def get_next_match(db: Session = Depends(get_db)):
-    # Search for the first game that is on schedule
-    # Sort by date (closest first)
+    now = datetime.now()
+    str_now = now.strftime("%Y-%m-%d")
+
+    # 1. Procura jogo
     next_match = db.query(Match)\
         .filter(Match.status == "agendado")\
+        .filter(Match.date >= str_now)\
         .order_by(Match.date.asc())\
         .first()
 
+    # 2. Se não existir, CRIA para a próxima terça
     if not next_match:
-        # If game will not happen, returns empty but with no errors
-        return {"id": None, "message": "Não irá haver jogo"}
+        target_date = get_next_tuesday_date()
+        date_str = target_date.strftime("%Y-%m-%d")
+        
+        exists = db.query(Match).filter(Match.date == date_str).first()
+        
+        if not exists:
+            next_match = Match(
+                date=date_str,
+                time=f"{MATCH_HOUR}:{MATCH_MINUTE}",
+                location="Campo Principal",
+                opponent="Jogo Interno",
+                status="agendado"
+            )
+            db.add(next_match)
+            db.commit()
+            db.refresh(next_match)
+        else:
+            next_match = exists
+
+    # 3. Calcula se está aberto ou fechado
+    match_dt = datetime.strptime(f"{next_match.date} {next_match.time}", "%Y-%m-%d %H:%M")
+    is_open, _, _ = is_convocation_open(match_dt)
     
-    # Count how many will go
     confirmed_count = db.query(Attendance)\
         .filter(Attendance.match_id == next_match.id, Attendance.status == "going")\
         .count()
-    
+
     return {
         "id": next_match.id,
         "date": next_match.date,
         "time": next_match.time,
         "location": next_match.location,
         "opponent": next_match.opponent,
-        "confirmed_players": confirmed_count
-    }       
+        "confirmed_players": confirmed_count,
+        "is_open": is_open 
+    }
+
+# Endpoint to confirme presence
+@app.post("/matches/attend")
+def update_attendance(data: AttendanceRequest, db: Session = Depends(get_db)):
+    # CORREÇÃO: Removemos o "models." antes de Match
+    match = db.query(Match).filter(Match.id == data.match_id).first()
+    
+    if not match:
+        return {"success": False, "message": "Jogo não encontrado"}
+
+    # CORREÇÃO: Removemos o "models." antes de Attendance
+    attendance = db.query(Attendance).filter(
+        Attendance.match_id == data.match_id,
+        Attendance.player_id == data.player_id
+    ).first()
+
+    if attendance:
+        attendance.status = data.status # Atualiza (mudou de ideias)
+    else:
+        # CORREÇÃO: Removemos o "models." aqui também
+        attendance = Attendance(
+            match_id=data.match_id,
+            player_id=data.player_id,
+            status=data.status
+        )
+        db.add(attendance)
+    
+    db.commit()
+    return {"success": True, "message": "Presença guardada!"}
+
 # -- Login Endpoint --
 @app.post("/login")
 def login(login_data: LoginRequest, db: Session = Depends(get_db)):
-    # 1. Procura o jogador pelo username (Use 'Player' em vez de 'models.Player')
+    # 1. Procura o jogador pelo username
     player = db.query(Player).filter(Player.username == login_data.username).first()
     
     # 2. Verifica se existe e se a senha bate certo

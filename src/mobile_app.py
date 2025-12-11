@@ -573,11 +573,15 @@ def main(page: ft.Page):
     refresh_champions()
     build_layout()
 
+script_dir = os.path.dirname(os.path.abspath(__file__))
+root_dir = os.path.dirname(script_dir)
+assets_path = os.path.join(root_dir, "assets")
+
 # Run the app
 try:
-    app = ft.app(target=main, export_asgi_app=True, assets_dir="assets")
+    app = ft.app(target=main, export_asgi_app=True, assets_dir=assets_path)
 except Exception:
     app = None
 
 if __name__ == "__main__":
-    ft.app(target=main, export_asgi_app=True, assets_dir="assets")
+    ft.app(target=main, export_asgi_app=True, assets_dir=assets_path)

@@ -44,3 +44,17 @@ class Match(Base):
 
     # Relationship: a match as many players
     players= relationship("Player", secondary="match_players", back_populates="matches")
+
+class Attendance(Base):
+    __tablename__ = "attendances"
+
+    id = Column(Integer, primary_key = True, index = True)
+
+    match_id = Column(Integer, ForeignKey("matches.id"))
+    player_id = Column(Integer, ForeignKey("palyers_id"))
+
+    # Status "going" (Vou), "not_going" (Não Vou), "maybe" (Talvez)
+    status = Column(String, default = "maybe")
+
+    match = relationship("Match", back_populates="attendances")
+    player = relationship("Player")

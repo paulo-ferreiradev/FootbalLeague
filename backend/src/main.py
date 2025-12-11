@@ -9,7 +9,6 @@ import json
 import enum
 from datetime import date
 from typing import List, Optional, Dict, Any
-
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, Column, Integer, String, Date, ForeignKey, Boolean, Float, Text
@@ -55,6 +54,14 @@ class MatchPlayer(Base):
     player_id = Column(Integer, ForeignKey("players.id"), primary_key=True)
     team = Column(String, nullable=False)
 
+class Attendance(Base):
+    """Tracks player attendance for upcoming matches."""
+    __tablename__ = "attendance"
+    id = Column(Integer, primary_key=True, index=True)
+    match_id = Column(Integer, ForeignKey("matches.id"))
+    player_id = Column(Integer, ForeignKey("players.id"))
+    status = Column(String)
+
 class Player(Base):
     """
     Represents a player in the league.
@@ -74,8 +81,12 @@ class Match(Base):
     __tablename__ = "matches"
     id = Column(Integer, primary_key=True, index=True)
     date = Column(Date, nullable=False)
-    result = Column(String, nullable=False)
+    result = Column(String, nullable=True)
     is_double_points = Column(Boolean, default=False)
+    status = Column(String, default="concluido") # 'agendado', 'concluido'
+    time = Column(String, nullable=True)
+    location = Column(String, nullable=True)
+    opponent = Column(String, nullable=True)
     players = relationship("Player", secondary="match_players", back_populates="matches")
 
 class Champion(Base):
@@ -235,6 +246,33 @@ def get_table(db: Session = Depends(get_db)):
     """Returns the calculated leaderboard for the current season."""
     return calculate_table_stats(db)
 
+@app.get("/matches/next")
+def get_next_match(db: Session = Depends(get_db)):
+    # Search for the first game that is on schedule
+    # Sort by date (closest first)
+    next_match = db.query(Match)\
+        .filter(Match.status == "agendado")\
+        .order_by(Match.date.asc())\
+        .first()
+
+    if not next_match:
+        # If game will not happen, returns empty but with no errors
+        return {"id": None, "message": "Não irá haver jogo"}
+    
+    # Count how many will go
+    confirmed_count = db.query(Attendance)\
+        .filter(Attendance.match_id == next_match.id, Attendance.status == "going")\
+        .count()
+    
+    return {
+        "id": next_match.id,
+        "date": next_match.date,
+        "time": next_match.time,
+        "location": next_match.location,
+        "opponent": next_match.opponent,
+        "confirmed_players": confirmed_count
+    }       
+    
 @app.post("/players/", response_model=PlayerSchema)
 def create_player(player: PlayerCreate, db: Session = Depends(get_db)):
     """Registers a new player."""

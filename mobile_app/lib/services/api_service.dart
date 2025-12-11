@@ -9,7 +9,7 @@ class ApiService {
 
   Future<List<Player>> getLeaderboard() async {
     try {
-      final responde = await http.get(Uri.parse("$baseUrl/table"));
+      final responde = await http.get(Uri.parse("$baseUrl/table/"));
 
       if (responde.statusCode == 200) {
         List<dynamic> body = json.decode(responde.body);
@@ -25,7 +25,7 @@ class ApiService {
 
   Future<Match?> getNextMatch() async {
     try {
-      final response = await http.get(Uri.parse('$baseUrl/matches/next'));
+      final response = await http.get(Uri.parse('$baseUrl/matches/next/'));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);

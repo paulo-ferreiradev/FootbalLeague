@@ -40,7 +40,6 @@ Base = declarative_base()
 # =============================================================================
 # 2. SQLALCHEMY ORM MODELS
 # =============================================================================
-
 class MatchResult(str, enum.Enum):
     """Enum representing possible outcomes of a match."""
     TEAM_A = "TEAM_A"
@@ -70,6 +69,9 @@ class Player(Base):
     __tablename__ = "players"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True)
+    username = Column(String, unique=True, nullable=True)
+    password = Column(String, nullable=True)
+    role = Column(String, default="player")
     is_active = Column(Boolean, default=True)
     balance = Column(Float, default=0.0)
     is_fixed = Column(Boolean, default=False)
@@ -110,7 +112,9 @@ Base.metadata.create_all(bind=engine)
 # =============================================================================
 # 3. PYDANTIC SCHEMAS (Data Validation)
 # =============================================================================
-
+class LoginRequest(BaseModel):
+    username: str
+    password: str
 class PlayerCreate(BaseModel):
     name: str
     is_fixed: bool = False
@@ -272,7 +276,25 @@ def get_next_match(db: Session = Depends(get_db)):
         "opponent": next_match.opponent,
         "confirmed_players": confirmed_count
     }       
+# -- Login Endpoint --
+@app.post("/login")
+def login(login_data: LoginRequest, db: Session = Depends(get_db)):
+    # 1. Procura o jogador pelo username (Use 'Player' em vez de 'models.Player')
+    player = db.query(Player).filter(Player.username == login_data.username).first()
     
+    # 2. Verifica se existe e se a senha bate certo
+    if not player or player.password != login_data.password:
+        return {"success": False, "message": "Dados errados"}
+    
+    # 3. Sucesso! Devolve os dados dele
+    return {
+        "success": True,
+        "player_id": player.id,
+        "name": player.name,
+        "role": player.role,
+        "message": "Bem-vindo!"
+    }
+   
 @app.post("/players/", response_model=PlayerSchema)
 def create_player(player: PlayerCreate, db: Session = Depends(get_db)):
     """Registers a new player."""

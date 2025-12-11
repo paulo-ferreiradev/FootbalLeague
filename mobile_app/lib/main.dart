@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'screens/leaderboard_screen.dart';
+import 'screens/login_screen.dart'; // <--- MUDANÇA 1
 
 void main() {
   runApp(const TercasFCApp());
@@ -13,7 +13,6 @@ class TercasFCApp extends StatelessWidget {
     return MaterialApp(
       title: 'Terças FC',
       debugShowCheckedModeBanner: false,
-      // Tema Geral da App (Fica tudo centralizado aqui)
       theme: ThemeData.dark().copyWith(
         primaryColor: Colors.green,
         scaffoldBackgroundColor: const Color(0xFF121212),
@@ -22,7 +21,7 @@ class TercasFCApp extends StatelessWidget {
           secondary: Colors.greenAccent,
         ),
       ),
-      home: const LeaderboardScreen(),
+      home: const LoginScreen(), // <--- MUDANÇA 2 (Começa aqui!)
     );
   }
 }

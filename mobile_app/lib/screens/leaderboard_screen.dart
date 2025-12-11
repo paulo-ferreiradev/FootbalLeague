@@ -94,7 +94,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                     scrollDirection: Axis.horizontal,
                     child: DataTable(
                       columnSpacing: 20,
-                      headingRowColor: MaterialStateProperty.all(
+                      headingRowColor: WidgetStateProperty.all(
                         Colors.grey[900],
                       ),
                       columns: const [
